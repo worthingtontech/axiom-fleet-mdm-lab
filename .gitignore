@@ -1,0 +1,58 @@
+# ─── Secrets (constraint #1: $0, secrets never committed) ───────────────
+.env
+*.env
+!secrets.example.env
+!*.example.env
+secrets/
+*.key
+*.pem
+!lib/**/*.pem            # allow committed *public* test certs if ever needed
+apns*.p12
+*.mobileprovision
+scep*.crt
+
+# ─── Local CA / TLS material (mkcert output is per-machine) ──────────────
+infra/caddy/data/
+infra/caddy/config/
+infra/tls/*.pem
+infra/tls/*-key.pem
+rootCA*.pem
+
+# ─── VM artifacts (huge, per-machine, rebuilt from Git + scripts) ────────
+*.iso
+*.vdi
+*.vmdk
+*.ova
+*.img
+*.qcow2
+seed/*.iso
+provisioning/**/build/
+*.log
+
+# ─── Runtime data volumes (telemetry/db state is not desired-state) ──────
+telemetry/loki/data/
+telemetry/prometheus/data/
+telemetry/grafana/data/
+data/
+mysql-data/
+redis-data/
+
+# ─── Fleetd package build output ────────────────────────────────────────
+*.deb
+*.rpm
+*.msi
+*.pkg
+fleet-osquery*.
+orbit-*.
+
+# ─── Tooling / OS cruft ─────────────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tmp
