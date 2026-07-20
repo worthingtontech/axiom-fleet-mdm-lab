@@ -13,7 +13,7 @@
 | **Phase** | **0 — Recon & plan** (awaiting operator approval of topology) |
 | **Date** | 2026-07-20 |
 | **Next gate** | Operator approves the topology below → begin Phase 1 (Fleet core) |
-| **Live docs research** | Background workflow `fleet-docs-recon` running (7 finders + synthesis) to reconcile current Fleet schemas/versions before Phase 1 |
+| **Live docs research** | ✅ Complete (8 agents, 0 errors). Anchored to **Fleet v4.89.1** (2026-07-16). Full brief: [docs/research/2026-07-20-phase0-1-fleet-brief.md](docs/research/2026-07-20-phase0-1-fleet-brief.md) |
 | **Git** | Initialized (`main`), identity `Aaron W`. No remote yet (private GitHub repo to be added; needed for Mac Studio onboarding). |
 
 ### Phase checklist
@@ -80,7 +80,30 @@ Full fleet peaks at **~33 GB ≤ 36 GB budget** — everything can run at once;
 |---|---|---|
 | [0001](docs/adr/0001-right-sized-topology.md) | Right-sized topology for a 63 GB Win 11 Home host | Proposed |
 | [0002](docs/adr/0002-vm-backend-virtualbox-cloudinit.md) | VirtualBox + cloud-init (NoCloud) as VM backend | Proposed |
-| 0003 | Free-tier tiering: labels + enroll secrets vs Premium teams | _pending live-docs research_ |
+| [0003](docs/adr/0003-free-tier-trust-tiering.md) | Trust-tiering on Free via self-scoping policy SQL (NOT label/enroll-secret scoping) | **Accepted** |
+
+---
+
+## Research-verified build facts (Fleet v4.89.1) — feeds Phase 1+
+
+Full detail + citations in the [research brief](docs/research/2026-07-20-phase0-1-fleet-brief.md). The load-bearing ones:
+
+- **Pin `fleetdm/fleet:v4.89.1`** (image tag drops the `fleet-` prefix), `mysql:8` (≥8.0.44; **9.6.0 incompatible**), `redis:6`.
+- **Compose source:** `docs/solutions/docker-compose/` (the repo-root compose is a *dev* env — not a deploy target). Needs a **`fleet-init` chown sidecar** (uid 100/gid 101) or first boot fails. Migration is baked in: `fleet prepare db --no-prompt && fleet serve`.
+- **TLS:** `FLEET_SERVER_TLS=false` + **Caddy** terminates with an **mkcert** leaf; set `FLEET_SERVER_URL` to the external HTTPS name, `FLEET_SERVER_WEBSOCKETS_ALLOW_UNSAFE_ORIGIN=true`. `FLEET_SERVER_PRIVATE_KEY` (`openssl rand -base64 32`) is **required** and enables MDM — never regenerate it after MDM assets exist.
+- **Agent packaging:** `fleetctl package --type deb|rpm|msi|pkg --fleet-certificate <rootCA.pem>` — the flag takes the **CA, not the leaf**; **osqueryd ignores the OS trust store**, so the CA must be baked into the package (the #1 local-lab gotcha). No `--fleet-tls` flag exists.
+- **GitOps:** declarative — anything absent from applied YAML is **auto-deleted** (no `--delete-missing` flag); always `--dry-run` first. Free requires a **global-admin** token.
+
+### ⚠️ Plan correction — trust-tiering (ADR-0003)
+The master prompt's *"labels + per-label policy scoping + separate enroll secrets"* tiering **does not work on Fleet Free**: per-label policy scoping is Premium and **silently ignored**; enroll secrets **don't segment hosts**. Replaced with **self-scoping policy SQL** keyed on a provisioned tier marker (`/etc/axiom/trust-tier`) + the free `platform` field + label-targeted *queries*. This changes how the Enclave and Phase 4 policies are authored — topology shape is unaffected.
+
+### Free-tier scope notes that shape later phases
+- **Disk-encryption & OS-update *enforcement* are Premium** → Phase 4 does **detection** policies (osquery reads FDE/version state); enforcement/escrow is documented as the Premium delta.
+- **Vuln CVE detection is Free; CVSS/EPSS/KEV scores are Premium** → Phase 8 SOAR-lite must not route severity on score fields.
+- **Script execution + failing-policy webhooks are Free** → Phase 8 auto-remediation works at $0.
+- **Android MDM is GA + Free** (work-profile BYOD) → **no Headwind fallback needed** (needs a Play-Protect/Google-Play AVD, not AOSP).
+- **Windows MDM manual enroll is Free**; **Apple MDM** server-side is Free (enroll needs the Mac Studio, deferred).
+- **Prometheus `/metrics` is auth-gated by default** → Phase 5 sets `FLEET_PROMETHEUS_BASIC_AUTH_DISABLE=true` (or basic-auth creds).
 
 ---
 
@@ -102,7 +125,8 @@ _Detailed, verified commands are pasted into each phase's acceptance section bel
 
 ### Phase 0 — Recon & plan
 - Host inventory captured above from real `Get-CimInstance` / `wsl` / `VBoxManage` output.
-- ADR-0001 (topology) + ADR-0002 (VM backend) written.
+- Live-docs research complete (8 agents, anchored to Fleet v4.89.1) → brief in `docs/research/`.
+- ADR-0001 (topology) + ADR-0002 (VM backend) + ADR-0003 (free-tier tiering, resolves prompt contradiction) written.
 - **Gate:** operator approval of the topology table. _Status: pending._
 
 _(Phase 1+ evidence appended here as each phase passes its checks.)_

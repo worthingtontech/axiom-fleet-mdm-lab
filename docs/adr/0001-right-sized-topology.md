@@ -60,10 +60,14 @@ RAM math (worst case, everything local on this host at once):
 
 ### High-Trust Enclave differentiation (Fleet Free has no teams — see ADR-0003)
 
-`enclave-01` is tiered up via **label + its own enroll secret + per-label policy
-scoping**, not a Premium team. It carries stricter controls: FDE verified,
-screen-lock ≤ 5 min, no removable media, osquery FIM on `/opt/axiom/weights-cache`,
-and elevated policy thresholds.
+`enclave-01` is tiered up via **self-scoping policy SQL keyed on a provisioned
+tier marker** (`/etc/axiom/trust-tier=elevated` + the canary path), plus the
+free `platform` field and label-targeted queries — **not** the master prompt's
+label/enroll-secret scoping, which is Premium and silently ignored on Free
+(this was the plan's single biggest correction; full rationale in ADR-0003). It
+still carries its own enroll secret as a Premium-ready artifact (cosmetic for
+segmentation on Free). Controls: FDE verified, screen-lock ≤ 5 min, no removable
+media, osquery FIM on `/opt/axiom/weights-cache`, and elevated thresholds.
 
 ## Consequences
 
