@@ -74,6 +74,16 @@ Full fleet peaks at **~33 GB ≤ 36 GB budget** — everything can run at once;
 
 ---
 
+## Stack Encyclopedia
+
+Deep component-by-component reference for the entire build lives at
+**[docs/encyclopedia/](docs/encyclopedia/README.md)** — 11 layer files + index,
+every entry answering *what it is → why it's here → where it sits → how it works
+→ who talks to it (direction/protocol/port) → Free-vs-Premium → gotchas*.
+Authored 2026-07-20 by a 23-agent draft→fact-check workflow pinned to the
+v4.89.1 research brief; start with the README's stack diagram and the two
+data-flow walkthroughs.
+
 ## Architecture Decision Records
 
 | ADR | Title | Status |
@@ -103,7 +113,7 @@ The master prompt's *"labels + per-label policy scoping + separate enroll secret
 - **Script execution + failing-policy webhooks are Free** → Phase 8 auto-remediation works at $0.
 - **Android MDM is GA + Free** (work-profile BYOD) → **no Headwind fallback needed** (needs a Play-Protect/Google-Play AVD, not AOSP).
 - **Windows MDM manual enroll is Free**; **Apple MDM** server-side is Free (enroll needs the Mac Studio, deferred).
-- **Prometheus `/metrics` is auth-gated by default** → Phase 5 sets `FLEET_PROMETHEUS_BASIC_AUTH_DISABLE=true` (or basic-auth creds).
+- **Prometheus `/metrics` is disabled by default** (not served at all) → Phase 5 enables it with basic-auth creds (`FLEET_PROMETHEUS_BASIC_AUTH_USERNAME/_PASSWORD`) or `FLEET_PROMETHEUS_BASIC_AUTH_DISABLE=true`.
 
 ---
 
