@@ -1,0 +1,206 @@
+# =============================================================================
+# Project AXIOM -- axiom-core: the Phase 1 Fleet control plane
+# =============================================================================
+# Topology (deep dive: docs/encyclopedia/02-containers-and-docker.md):
+#
+#     LAN / browser / fleetd agents
+#              |  HTTPS :443            <- the ONLY LAN-facing port
+#              v
+#     [ caddy ]  TLS terminated with the mkcert leaf bind-mounted from ./tls
+#              |  plain HTTP -> fleet:1337  (bridge-internal, by service DNS --
+#              v                             never 127.0.0.1: inside the caddy
+#     [ fleet ]                              container, loopback IS caddy)
+#        |-> [ mysql :3306 ]   durable system-of-record
+#        |-> [ redis :6379 ]   cache + live-query pub/sub
+#     [ fleet-init ]  one-shot chown so the non-root fleet process
+#                     (uid 100 / gid 101) can write freshly created volumes
+#
+# Image pins (re-verify before every phase bump -- Fleet ships ~every 3 weeks):
+#   fleetdm/fleet:v4.89.1   stable 2026-07-16. The Docker tag DROPS the
+#                           "fleet-" prefix the GitHub release tag carries.
+#                           (docs-v4.90/4.91 tags are docs previews -- not
+#                           stable, never pin them.)
+#   mysql:8                 must resolve >= 8.0.44; MySQL 9.6.0 is explicitly
+#                           incompatible -- do not chase newer major tags.
+#   redis:6                 what Fleet ships in its own lab compose.
+#   caddy:2.11.4            current caddy 2.x stable (checked 2026-07-21).
+#   alpine:3.24.1           current alpine stable (checked 2026-07-21).
+#
+# Config-vs-state split (what makes this rebuildable from Git alone):
+#   bind mounts   = Git-tracked config (./caddy/Caddyfile) + host-generated
+#                   TLS material (./tls/*.pem -- gitignored, minted by mkcert)
+#   named volumes = runtime state (DB, redis AOF, osquery logs, vuln DB).
+#                   They survive `docker compose down`; only `down -v`
+#                   destroys them -- see infra/README.md before ever using -v.
+#
+# Secrets arrive via infra/.env (gitignored). Bootstrap it once with
+# infra/scripts/new-env.ps1. Bring-up order + acceptance checks: infra/README.md
+# =============================================================================
+
+name: axiom-core
+
+services:
+  # ---------------------------------------------------------------------------
+  # MySQL 8 -- Fleet's durable state: hosts, policies, users, software
+  # inventory, and the (app-layer-encrypted) MDM assets. Only the fleet
+  # service ever talks to it.
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8
+    platform: linux/x86_64
+    # SYS_NICE lets mysqld set thread priorities inside the container and
+    # silences the harmless-but-noisy "mbind: Operation not permitted" log spam.
+    cap_add:
+      - SYS_NICE
+    environment:
+      # ":?" makes compose fail fast with a readable error instead of booting
+      # MySQL with empty credentials when infra/.env is missing or incomplete.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?missing - run infra/scripts/new-env.ps1 first}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?missing - run infra/scripts/new-env.ps1 first}
+      MYSQL_USER: ${MYSQL_USER:?missing - run infra/scripts/new-env.ps1 first}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?missing - run infra/scripts/new-env.ps1 first}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      # Loopback-only debug publish. NEVER "3306:3306" -- that would expose the
+      # DB on every host interface (0.0.0.0) and hence the LAN.
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      # "mysqld is alive" gate; values match the canonical Fleet lab compose
+      # (10s interval / 5s timeout / 12 retries). start_period gives a fresh
+      # volume time to initialize without burning retries.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis 6 -- Fleet's short-term memory: caches, cron locks, and the pub/sub
+  # channel that streams live-query results. Volatile by design; the AOF just
+  # smooths restarts.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:6
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    ports:
+      # Loopback-only debug publish -- same rationale as MySQL above.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # fleet-init -- one-shot init-container (the Compose analogue of a k8s
+  # initContainer). Freshly created named volumes are owned by root:root, but
+  # the Fleet image runs its process as uid 100 / gid 101 (non-root). Without
+  # this chown, Fleet's first boot dies with "permission denied" /
+  # "unknown userid" (a real failure class, fixed-around-4.88.1). Idempotent,
+  # so re-running it on every `up` is harmless. DO NOT remove it.
+  # ---------------------------------------------------------------------------
+  fleet-init:
+    image: alpine:3.24.1
+    command: ["chown", "-R", "100:101", "/logs", "/data", "/vulndb"]
+    volumes:
+      - fleet-logs:/logs
+      - fleet-data:/data
+      - fleet-vulndb:/vulndb
+    # A task, not a service: run once, exit 0, never restart.
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Fleet v4.89.1 -- the stateless control plane (UI + REST API + osquery TLS
+  # API + MDM). Speaks PLAIN HTTP on 0.0.0.0:1337 (FLEET_SERVER_TLS=false);
+  # TLS lives exclusively at the caddy edge. All FLEET_* config comes from
+  # infra/.env via env_file (single consolidated env file -- a deliberate lab
+  # simplification; it also injects the MYSQL_* bootstrap vars, which Fleet
+  # simply ignores).
+  # ---------------------------------------------------------------------------
+  fleet:
+    image: fleetdm/fleet:v4.89.1
+    platform: linux/x86_64
+    # DB migrations are baked into the start command -- there is no separate
+    # "migrate" step to forget. `prepare db` is idempotent on every boot.
+    command: ["sh", "-c", "/usr/bin/fleet prepare db --no-prompt && /usr/bin/fleet serve"]
+    env_file:
+      # Resolves relative to this file -> infra/.env (gitignored; generated by
+      # infra/scripts/new-env.ps1 from infra/secrets.example.env).
+      - .env
+    depends_on:
+      # This trio defeats the classic boot race: Fleet starts only when the
+      # datastores actually answer AND the volumes are owned by uid 100.
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fleet-init:
+        condition: service_completed_successfully
+    volumes:
+      - fleet-logs:/logs      # filesystem osquery status+result logs
+      - fleet-data:/data      # misc fleet file state
+      - fleet-vulndb:/vulndb  # CVE feed cache (avoids re-download each boot)
+    ports:
+      # Loopback-only debug publish of the PLAINTEXT listener, e.g.
+      #   curl http://127.0.0.1:1337/healthz
+      # NEVER "1337:1337" -- that would put an unencrypted Fleet on the LAN.
+      # All real traffic enters through caddy:443.
+      - "127.0.0.1:1337:1337"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Caddy -- the single TLS front door. Terminates HTTPS on :443 with the
+  # mkcert leaf (bind-mounted from ./tls, minted by infra/tls/make-certs.ps1)
+  # and reverse-proxies to fleet:1337 BY SERVICE DNS over the bridge. :80 is
+  # published for Caddy's automatic HTTP->HTTPS redirect. Caddy's proxy is
+  # host-preserving and injects X-Forwarded-For -- which is why
+  # FLEET_SERVER_TRUSTED_PROXIES (in .env) must cover this network's subnet.
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2.11.4
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      # Git-tracked proxy config. NOTE: a bind mount HIDES whatever the image
+      # shipped at the path -- a typo'd host path means Caddy boots configless.
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # mkcert leaf + key (gitignored; regenerate with infra/tls/make-certs.ps1
+      # whenever the LAN IP changes). Mount target MUST stay /etc/caddy/certs:
+      # the Caddyfile's tls directive loads
+      # /etc/caddy/certs/fleet.axiom.lab.pem + fleet.axiom.lab-key.pem.
+      - ./tls:/etc/caddy/certs:ro
+      # Caddy-internal state (OCSP staples, etc.) -- keep off the repo.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      # Weak gate on purpose: Caddy may come up while Fleet is still running
+      # migrations (it just 502s until fleet:1337 answers).
+      fleet:
+        condition: service_started
+    restart: unless-stopped
+
+networks:
+  # Pin the bridge subnet so FLEET_SERVER_TRUSTED_PROXIES in .env is
+  # deterministic instead of whatever docker picks next. Confirm with:
+  #   docker network inspect axiom-core_default
+  # If 172.28.0.0/16 collides with an existing network on your machine, change
+  # it here AND update FLEET_SERVER_TRUSTED_PROXIES in infra/.env to match.
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  mysql-data:    # all Fleet DB state -- hosts, policies, users, MDM assets
+  redis-data:    # AOF snapshot (queue/cache continuity)
+  fleet-logs:    # osquery status/result logs (telemetry pipeline reads later)
+  fleet-data:    # fleet file state
+  fleet-vulndb:  # CVE feed cache
+  caddy-data:    # caddy internal state
+  caddy-config:  # caddy internal config

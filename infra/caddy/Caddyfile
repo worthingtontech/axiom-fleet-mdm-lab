@@ -1,0 +1,57 @@
+# =============================================================================
+# Project AXIOM — Caddyfile (the TLS edge of the axiom-core stack)
+# =============================================================================
+# Caddy is the ONLY published entry point of the stack: it owns host ports
+# 443 (TLS) and 80 (redirect), terminates TLS with a locally-trusted mkcert
+# leaf, and forwards plain HTTP to the Fleet container over the private
+# compose bridge network. Fleet itself runs FLEET_SERVER_TLS=false on
+# 0.0.0.0:1337, which is never published to the LAN.
+#
+# WHY THERE IS NO ACME / LET'S ENCRYPT HERE:
+#   fleet.axiom.lab is an invented, LAN-only hostname. No public CA can ever
+#   validate it — there is no public DNS record and the lab is not reachable
+#   from the internet — so Caddy's usual "automatic HTTPS via ACME" cannot
+#   work. Handing the `tls` directive an explicit cert + key file disables
+#   certificate automation for this site entirely: Caddy never attempts an
+#   ACME order that would just fail and spam the logs. Trust comes from
+#   mkcert instead — infra/tls/make-certs.ps1 mints the leaf below and every
+#   client (host, VMs, fleetd packages) is taught to trust the mkcert root.
+#
+# CERT MOUNT CONTRACT (docker-compose bind-mounts the tls dir read-only):
+#   ./tls  ->  /etc/caddy/certs        (relative to infra/, ":ro")
+# so the tls directive below resolves:
+#   /etc/caddy/certs/fleet.axiom.lab.pem      (leaf)
+#   /etc/caddy/certs/fleet.axiom.lab-key.pem  (key)
+#   (Stable filenames guaranteed by infra/tls/make-certs.ps1 — never mkcert's
+#   default "+N" suffixed names.) Re-issuing the leaf = re-run make-certs.ps1,
+#   then `docker compose restart caddy`.
+
+# ── HTTP -> HTTPS redirect (port 80) ─────────────────────────────────────────
+# Catch-all: requests by hostname OR raw LAN IP are bounced to HTTPS.
+# Caddy would create this redirect automatically for the named site below;
+# declaring it explicitly keeps the behaviour visible to a reader and also
+# covers clients that dial the bare IP. Compose must publish 80:80 alongside
+# 443:443 for this block to be reachable.
+http:// {
+	redir https://{host}{uri} permanent
+}
+
+# ── Fleet vhost (port 443) ───────────────────────────────────────────────────
+fleet.axiom.lab {
+	# Explicit mkcert leaf + key (this is what disables ACME — see header).
+	# The leaf's SANs cover fleet.axiom.lab, the host's LAN IP, localhost
+	# and 127.0.0.1, so every name a lab client might dial verifies.
+	tls /etc/caddy/certs/fleet.axiom.lab.pem /etc/caddy/certs/fleet.axiom.lab-key.pem
+
+	# Proxy to the Fleet container by compose service DNS name — NOT
+	# 127.0.0.1: inside this container, loopback is Caddy itself, and
+	# Fleet's :1337 is deliberately unpublished. Caddy's reverse_proxy is
+	# transparent by default — it preserves the Host header and injects
+	# X-Forwarded-For / X-Forwarded-Proto — which is exactly what osquery
+	# enrollment, the live-query WebSocket upgrade, and Windows/Apple
+	# MDM + SCEP need to pass through unchanged. Fleet only honours those
+	# forwarded headers because FLEET_SERVER_TRUSTED_PROXIES is set to the
+	# compose bridge subnet (Caddy reaches Fleet from a bridge IP, not
+	# loopback — confirm the subnet with `docker network inspect`).
+	reverse_proxy fleet:1337
+}

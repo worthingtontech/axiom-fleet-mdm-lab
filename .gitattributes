@@ -1,0 +1,28 @@
+# Normalize line endings so the lab works when cloned on Linux/macOS (VMs, Mac Studio)
+# and Windows alike. Shell scripts MUST stay LF or they break under /bin/sh on Ubuntu.
+
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Everything that runs on Linux stays LF (explicit for clarity)
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Caddyfile   text eol=lf
+Dockerfile  text eol=lf
+*.mobileconfig text eol=lf
+
+# Binary assets — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.p12 binary
+*.iso binary
