@@ -1,0 +1,53 @@
+# =============================================================================
+# Claude-in-the-loop remediation
+# =============================================================================
+# Detect -> triage -> draft-PR, closing the compliance loop with Claude as the
+# teammate that does the first-draft toil. On a schedule (and on demand, and when
+# the Phase 8 failing-policies receiver dispatches it), Claude reads the live
+# Fleet state, drafts remediation briefs for the failing policies, and opens ONE
+# PR for a human to review and merge. Claude never applies to the fleet directly.
+#
+# Runs on the SELF-HOSTED runner (needs LAN access to fleet.axiom.lab; same trust
+# model as apply/drift/promote, ADR-0007). DISABLED until the runner is registered
+# and ANTHROPIC_API_KEY is set as a repo secret.
+# =============================================================================
+name: claude-remediate
+
+on:
+  workflow_dispatch:
+    inputs:
+      open_pr:
+        description: "Open a PR with the drafted remediations"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "0 13 * * 1-5"   # weekday mornings: draft fixes for whatever is red
+  repository_dispatch:
+    types: [failing-policy]  # Phase 8 SOAR-lite receiver can fire this
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: claude-remediate
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: [self-hosted, fleet-apply]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Triage failing policies + draft remediations (Claude)
+        shell: powershell
+        env:
+          # The claude CLI / SDK reads this. Set it as a repo secret.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Least-privilege Fleet API token (the api-only observer works for reads).
+          FLEET_API_TOKEN: ${{ secrets.FLEET_EXPORTER_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $openPr = ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch') -or ('${{ inputs.open_pr }}' -eq 'true')
+          if ($openPr) { gitops/remediate/claude-remediate.ps1 -OpenPr }
+          else         { gitops/remediate/claude-remediate.ps1 }

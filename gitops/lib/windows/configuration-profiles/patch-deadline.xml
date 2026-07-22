@@ -1,0 +1,38 @@
+<!--
+  AXIOM Windows Update for Business : patch DEADLINE enforcement.
+  Fleet Windows MDM custom configuration profile (SyncML Replace over the Update CSP),
+  referenced from gitops/default.yml controls.windows_settings.configuration_profiles
+  and applied by fleetctl gitops to every enrolled Windows host (drift tracked).
+  Enforces: quality updates install within 7 days, feature updates within 14, a 2 day
+  active hours grace period, then an automatic restart so the patch actually lands.
+  CSP ref: learn.microsoft.com/windows/client-management/mdm/policy-csp-update
+  With no Windows host enrolled yet (client enrollment is the documented last mile),
+  this is authored + GitOps applied, not live verified on a device.
+-->
+<Replace>
+  <Item>
+    <Target><LocURI>./Device/Vendor/MSFT/Policy/Config/Update/ConfigureDeadlineForQualityUpdates</LocURI></Target>
+    <Meta><Format xmlns="syncml:metinf">int</Format></Meta>
+    <Data>7</Data>
+  </Item>
+  <Item>
+    <Target><LocURI>./Device/Vendor/MSFT/Policy/Config/Update/ConfigureDeadlineForFeatureUpdates</LocURI></Target>
+    <Meta><Format xmlns="syncml:metinf">int</Format></Meta>
+    <Data>14</Data>
+  </Item>
+  <Item>
+    <Target><LocURI>./Device/Vendor/MSFT/Policy/Config/Update/ConfigureDeadlineGracePeriod</LocURI></Target>
+    <Meta><Format xmlns="syncml:metinf">int</Format></Meta>
+    <Data>2</Data>
+  </Item>
+  <Item>
+    <Target><LocURI>./Device/Vendor/MSFT/Policy/Config/Update/ConfigureDeadlineNoAutoReboot</LocURI></Target>
+    <Meta><Format xmlns="syncml:metinf">int</Format></Meta>
+    <Data>0</Data>
+  </Item>
+  <Item>
+    <Target><LocURI>./Device/Vendor/MSFT/Policy/Config/Update/AllowAutoUpdate</LocURI></Target>
+    <Meta><Format xmlns="syncml:metinf">int</Format></Meta>
+    <Data>4</Data>
+  </Item>
+</Replace>

@@ -24,6 +24,17 @@ controls:
   # generate-gitops does NOT emit it, so it is added by hand; omitting it on apply
   # would silently turn Windows MDM back OFF. Verified against the live server.
   windows_enabled_and_configured: true
+  # Windows Update for Business patch-DEADLINE profile (patch enforcement) -- delivered
+  # to every enrolled Windows host via MDM. lib/windows/configuration-profiles/patch-deadline.xml.
+  # Patch-DEADLINE enforcement: lib/windows/configuration-profiles/patch-deadline.xml
+  # (Windows Update for Business CSP -- quality<=7d, feature<=14d, then auto-restart).
+  # Authored + CI-validated as the enforcement MECHANISM. Delivering Windows MDM
+  # configuration profiles via GitOps is Fleet PREMIUM ("missing or invalid license"
+  # on Free); patch POSTURE detection is Free and already covered by the min-OS-build
+  # policies (#4/#16/#22). Uncomment to enforce on Premium:
+  #   windows_settings:
+  #     configuration_profiles:
+  #       - path: lib/windows/configuration-profiles/patch-deadline.xml
   # NB: GitOps `scripts:` is team-scoped (Premium). On Free the remediation script
   # (gitops/lib/linux/scripts/install-auditd.sh) is a library artifact delivered via
   # the run-script API (Phase 4/8), not declared here.

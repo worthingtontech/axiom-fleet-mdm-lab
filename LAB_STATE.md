@@ -370,4 +370,23 @@ Proves the load-bearing property: **it will not promote on a green-but-empty coh
 loop (`-Canary` host → auditd fails → run-script remediation → passes → PROMOTE → PR) awaits a canary
 VM (single-VM NEM ceiling).
 
+### Patch enforcement + Claude-in-the-loop (2026-07-22)
+
+**Patch-deadline enforcement** — [gitops/lib/windows/configuration-profiles/patch-deadline.xml](gitops/lib/windows/configuration-profiles/patch-deadline.xml):
+a Windows Update for Business CSP profile (quality ≤7d, feature ≤14d, 2-day grace, then auto-restart).
+Authored + CI-validated as the enforcement **mechanism**. Delivering Windows MDM configuration
+profiles via GitOps is Fleet **Premium** (`missing or invalid license` on Free), so the wiring is
+committed commented-out with the Premium note; patch **posture detection** is Free and already
+covered by the min-OS-build policies (#4/#16/#22). Dry-run clean (23 policies).
+
+**Claude-in-the-loop remediation** — [gitops/remediate/](gitops/remediate/README.md): closes
+detect→triage→fix. [`claude-remediate.ps1`](gitops/remediate/claude-remediate.ps1) pulls the live
+failing policies from the Fleet API and hands Claude (`claude -p`) a grounded brief (the policy SQL +
+the repo's remediation conventions) per policy; Claude drafts a Triage/Remediation/Risk brief in the
+house style; the script opens **one PR** for human review — Claude drafts, a human merges, never
+auto-applies. [`.github/workflows/claude-remediate.yml`](.github/workflows/claude-remediate.yml) runs
+it on the self-hosted runner (schedule + on demand + Phase-8 `failing-policy` dispatch). A committed
+[worked example](gitops/remediate/drafts/example-enclave-aide.md) shows the exact output — including
+Claude respecting the `--no-install-recommends` postfix gotcha from Phase 4.
+
 _(Phase 6+ evidence appended here as each phase passes its checks.)_
