@@ -10,16 +10,17 @@
 
 | | |
 |---|---|
-| **Phase** | **0 — Recon & plan** (awaiting operator approval of topology) |
-| **Date** | 2026-07-20 |
-| **Next gate** | Operator approves the topology below → begin Phase 1 (Fleet core) |
+| **Phase** | **1 — Fleet core ✅ COMPLETE** → next: Phase 2 (enroll the fleet) |
+| **Date** | 2026-07-22 |
+| **Running now** | `axiom-core` stack up (Fleet v4.89.1 + MySQL 8 + Redis 6 + Caddy) at **https://fleet.axiom.lab**. Admin creds in `~/axiom-fleet-admin.txt` (gitignored, out-of-repo). fleetctl at `~/.axiom-tools/…/fleetctl.exe` (rootca-configured). |
+| **Next gate** | Phase 2 — build fleetd packages (`--fleet-certificate` bakes the mkcert CA), provision Multipass/VBox Linux VMs, enroll Windows osquery+MDM, Android BYOD |
 | **Live docs research** | ✅ Complete (8 agents, 0 errors). Anchored to **Fleet v4.89.1** (2026-07-16). Full brief: [docs/research/2026-07-20-phase0-1-fleet-brief.md](docs/research/2026-07-20-phase0-1-fleet-brief.md) |
-| **Git** | Initialized (`main`), identity `Aaron W`. No remote yet (private GitHub repo to be added; needed for Mac Studio onboarding). |
+| **Git** | `main` → **github.com/worthingtontech/axiom-fleet-mdm-lab** (private, Apache-2.0). Flips public at Phase 9. |
 
 ### Phase checklist
 
-- [ ] **Phase 0** — Recon & plan _(in progress — this doc + ADRs exist; needs approval)_
-- [ ] **Phase 1** — Fleet core (Compose: Fleet + MySQL + Redis + Caddy + mkcert TLS)
+- [x] **Phase 0** — Recon & plan _(topology approved; ADRs 0001-0004 + encyclopedia + research brief)_
+- [x] **Phase 1** — Fleet core ✅ _(Compose: Fleet v4.89.1 + MySQL 8 + Redis 6 + Caddy + mkcert TLS — both acceptance checks pass, evidence below)_
 - [ ] **Phase 2** — Enroll the fleet (fleetd packages, Linux VMs, Windows osquery+MDM, Android)
 - [ ] **Phase 3** — GitOps & CI/CD (fleet-gitops layout, GH Actions gates, self-hosted runner, drift job)
 - [ ] **Phase 4** — Policy-as-code (≥15 policies + compliance matrix + test plans)
@@ -137,6 +138,49 @@ _Detailed, verified commands are pasted into each phase's acceptance section bel
 - Host inventory captured above from real `Get-CimInstance` / `wsl` / `VBoxManage` output.
 - Live-docs research complete (8 agents, anchored to Fleet v4.89.1) → brief in `docs/research/`.
 - ADR-0001 (topology) + ADR-0002 (VM backend) + ADR-0003 (free-tier tiering, resolves prompt contradiction) written.
-- **Gate:** operator approval of the topology table. _Status: pending._
+- **Gate:** operator approval of the topology table. _Status: ✅ **APPROVED** 2026-07-21._
+
+### Phase 1 — Fleet core ✅ (2026-07-22)
+
+Stack: `infra/docker-compose.yml` (`axiom-core`) — Fleet **v4.89.1** + MySQL 8 + Redis 6 +
+one-shot fleet-init + Caddy (TLS via mkcert). ADR-0004 (TLS termination + lab DNS).
+Host prep: Docker Desktop 4.83 / engine 29.6.2, mkcert 1.4.4, fleetctl 4.89.1.
+
+**Check 1 — `fleetctl` authenticates over HTTPS (validated chain, NO `--insecure`):**
+```
+$ fleetctl config set --address https://fleet.axiom.lab --rootca <infra/tls/rootCA.pem>
+[+] Set the address config key to "https://fleet.axiom.lab" in the "default" context
+[+] Set the rootca config key to "...\infra\tls\rootCA.pem" in the "default" context
+# .fleet/config → tls-skip-verify: false   (secure; real mkcert chain)
+$ fleetctl setup --email admin@axiom.lab --name "Aaron Perkins" --org-name "Axiom Intelligence"
+[+] Fleet setup successful and context configured!
+$ fleetctl get hosts
+No hosts found            # exit 0 — authenticated, nothing enrolled yet (correct for Phase 1)
+$ curl https://fleet.axiom.lab/healthz  → HTTP 200   (through Caddy, full TLS validation)
+```
+> Windows gotcha documented: `curl.exe`/Schannel hard-fails a local mkcert cert with
+> `CRYPT_E_NO_REVOCATION_CHECK` (no CRL/OCSP for a private CA) — cosmetic; fleetctl (Go TLS)
+> and browsers are fine. fleetctl needs the CA via `--rootca` (it won't read the OS store on Windows).
+
+**Check 2 — `down -v && up` restores a loginable server (rebuild from Git + `.env`):**
+```
+$ docker compose down -v      # destroyed ALL 7 named volumes incl. mysql-data (the whole DB)
+$ docker compose up -d        # rebuilt from Git-tracked compose + host .env
+  fleet-init Exited(0) · redis Healthy · mysql Healthy · fleet Started · caddy Started
+  Fleet /healthz 200 after ~48 s   (migrations re-ran automatically)
+$ fleetctl setup ... ; fleetctl get hosts → No hosts found (exit 0)
+$ curl https://fleet.axiom.lab/healthz → HTTP 200
+=== ACCEPTANCE #2: PASS ===
+```
+`.env` + `infra/tls/*.pem` are host files (survive `-v`); only volumes are destroyed → the
+private key and certs persist, everything else rebuilds. **This is the only phase where `-v`
+is safe** (from Phase 2 on it would wipe enrollment/MDM state).
+
+**Check 3 — VM CA-install is scripted:** `infra/tls/install-ca-linux.sh` (update-ca-certificates)
++ `install-ca-windows.ps1` (LocalMachine\Root) + `make-certs.ps1` copies `rootCA.pem` for
+provisioning. (Reminder: osqueryd ignores the OS store → Phase 2 also bakes the CA into fleetd
+via `fleetctl package --fleet-certificate`.)
+
+_Prove it cold:_ `docker compose -f infra/docker-compose.yml up -d` → browse https://fleet.axiom.lab.
 
 _(Phase 1+ evidence appended here as each phase passes its checks.)_

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t d">
+  <title id="t">AXIOM</title>
+  <desc id="d">Three nested hexagons — the trust tiers — with a solid gold core representing the High-Trust Enclave.</desc>
+  <!-- outer tier (steel; balanced for light + dark grounds) -->
+  <polygon points="32,6 54.5,19 54.5,45 32,58 9.5,45 9.5,19" fill="none" stroke="#7e91ac" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- middle tier (signal teal) -->
+  <polygon points="32,15 46.7,23.5 46.7,40.5 32,49 17.3,40.5 17.3,23.5" fill="none" stroke="#1fb9a9" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- enclave core (gold) -->
+  <polygon points="32,23 39.8,27.5 39.8,36.5 32,41 24.2,36.5 24.2,27.5" fill="#eab53e" stroke="#cf9a2a" stroke-width="0.8" stroke-linejoin="round"/>
+</svg>
