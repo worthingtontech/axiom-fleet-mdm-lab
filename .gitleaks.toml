@@ -26,3 +26,12 @@ paths = [
   '''.*\.example\.ya?ml''',
   '''.*/fixtures/.*''',
 ]
+
+[[allowlists]]
+description = "Public Microsoft generic (KMS client setup) product keys -- PUBLISHED by Microsoft (learn.microsoft.com volume activation), NOT secrets. They appear in runbooks/answer files to document edition choices. gitleaks' entropy check false-positives them as generic-api-key."
+condition = "OR"
+regexes = [
+  '''YTMG3-N6DKC-DKB77-7M9GH-8HVX7''',   # Windows 11 Home
+  '''VK7JG-NPHTM-C97JM-9MPGT-3V66T''',   # Windows 11 Pro
+  '''XGVPP-NMH47-7TTHJ-W3FW7-8HV2C''',   # Windows 11 Enterprise
+]
