@@ -1,41 +1,27 @@
 #cloud-config
-# AXIOM Linux node — STANDARD trust tier.
-# Template: new-linux-vm.ps1 substitutes __HOSTNAME__ and inlines __ROOTCA_PEM__.
-# Delivered as the `user-data` file on a NoCloud CIDATA seed ISO (see provisioning/README.md).
+# AXIOM Linux node -- STANDARD trust tier.
+# new-linux-vm.ps1 substitutes the hostname; delivered as `user-data` on a NoCloud
+# CIDATA seed ISO. Minimal + validated (gpu-node-1 enrolled with exactly this shape).
 hostname: __HOSTNAME__
-
-# We manage /etc/hosts ourselves (the fleet.axiom.lab -> NAT-gateway line below).
-# cloud-init must NOT rewrite it, or our mapping is clobbered on every boot.
-manage_etc_hosts: false
-
+manage_etc_hosts: false          # keep cloud-init from clobbering our Fleet host line
 users:
   - name: axiom
     sudo: 'ALL=(ALL) NOPASSWD:ALL'
     lock_passwd: false
-    plain_text_passwd: 'axiom'
+    plain_text_passwd: 'axiom'   # console/debug login only
     shell: /bin/bash
 ssh_pwauth: true
-
-# OS-level trust for the mkcert root CA (belt-and-suspenders: fleetd already has the
-# CA baked in via `fleetctl package --fleet-certificate`, but this trusts it for curl,
-# apt-over-https, and anything else on the box). __ROOTCA_PEM__ is replaced with the
-# PEM body, each line indented 6 spaces, by new-linux-vm.ps1.
-ca_certs:
-  trusted:
-    - |
-__ROOTCA_PEM__
-
 write_files:
-  # 10.0.2.2 is the VirtualBox NAT gateway == the Windows host, which runs Caddy:443.
-  # TLS still validates because verification is on the hostname (in the mkcert leaf SAN),
-  # not the IP. See ADR-0002 / ADR-0004 and provisioning/README.md.
+  # 10.0.2.2 = VirtualBox NAT gateway = the Windows host running Caddy:443.
+  # TLS validates on the hostname (in the mkcert leaf SAN), not the IP. See ADR-0002/0004.
   - path: /etc/hosts
     append: true
     content: "10.0.2.2 fleet.axiom.lab\n"
-
 runcmd:
-  # Mount the CIDATA seed by label (fallbacks for sr0/sr1), install the Git-tracked
-  # fleetd .deb offline from the seed; apt still resolves deps over NAT internet.
+  # Mount the CIDATA seed, install the Git-tracked fleetd .deb offline; orbit self-enrolls.
+  # The mkcert CA is already baked into the .deb (--fleet-certificate), so no OS-level CA
+  # trust is required for enrollment.
   - [sh, -c, "mkdir -p /mnt/seed && (mount -L CIDATA /mnt/seed || mount /dev/sr0 /mnt/seed || mount /dev/sr1 /mnt/seed)"]
   - [sh, -c, "apt-get install -y /mnt/seed/fleet-osquery.deb"]
   - [sh, -c, "umount /mnt/seed || true"]
+final_message: "AXIOM __HOSTNAME__ cloud-init done after $UPTIME s"

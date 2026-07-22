@@ -172,21 +172,36 @@ Write-Host "[1/5] Rendering cloud-init ($TemplateName)..." -ForegroundColor Cyan
 $userData = Get-Content -LiteralPath $TemplatePath -Raw
 $userData = $userData.Replace('__HOSTNAME__', $Name)
 
-# Inline the CA: each PEM line indented 6 spaces to sit under the `- |` block scalar.
-$pemLines   = Get-Content -LiteralPath $RootCaPath
-$pemIndented = ($pemLines | ForEach-Object { '      ' + $_ }) -join "`n"
-$userData = $userData.Replace('__ROOTCA_PEM__', $pemIndented)
+# NOTE: the mkcert CA is baked into the fleetd .deb at build time
+# (fleetctl package --fleet-certificate), which is all enrollment needs. We do NOT
+# inline it into cloud-init ca_certs -- an earlier attempt did, but the placeholder
+# also appeared in template comments and the global replace corrupted the YAML.
 
-if ($userData.Contains('__HOSTNAME__') -or $userData.Contains('__ROOTCA_PEM__')) {
-    throw "Template substitution incomplete - placeholders remain in user-data."
+if ($userData.Contains('__HOSTNAME__')) {
+    throw "Template substitution incomplete - __HOSTNAME__ remains in user-data."
 }
 
 $metaData = "instance-id: $Name`nlocal-hostname: $Name`n"
 
 # ----------------------------------------------------------------------------
+# 2. Idempotent teardown FIRST -- a running VM holds a lock on its seed ISO, so it
+#    must be powered off before we (re)build the seed. Phase 6 destroy-&-recreate
+#    depends on this ordering.
+# ----------------------------------------------------------------------------
+Write-Host "[2/5] Reconciling any existing VM/disk named '$Name' ..." -ForegroundColor Cyan
+if (Test-VmExists -VmName $Name) {
+    Invoke-VBox -VBoxArgs @('controlvm', $Name, 'poweroff') -Tolerate | Out-Null
+    Invoke-VBox -VBoxArgs @('unregistervm', $Name, '--delete') -Tolerate | Out-Null
+}
+if (Test-Path -LiteralPath $VmVdi) {
+    Invoke-VBox -VBoxArgs @('closemedium', 'disk', $VmVdi, '--delete') -Tolerate | Out-Null
+    if (Test-Path -LiteralPath $VmVdi) { Remove-FileWithRetry -Path $VmVdi }
+}
+
+# ----------------------------------------------------------------------------
 # 3. Assemble the seed directory
 # ----------------------------------------------------------------------------
-Write-Host "[2/5] Writing seed files to $SeedDir ..." -ForegroundColor Cyan
+Write-Host "[3/5] Writing seed files to $SeedDir ..." -ForegroundColor Cyan
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
@@ -197,7 +212,7 @@ Copy-Item -LiteralPath $DebPath -Destination (Join-Path $SeedDir 'fleet-osquery.
 # ----------------------------------------------------------------------------
 # 4. Build the CIDATA seed ISO in a container (LF-normalize, then genisoimage)
 # ----------------------------------------------------------------------------
-Write-Host "[3/5] Building CIDATA seed ISO ($IsoPath) ..." -ForegroundColor Cyan
+Write-Host "[4/5] Building CIDATA seed ISO ($IsoPath) ..." -ForegroundColor Cyan
 if (Test-Path -LiteralPath $IsoPath) { Remove-Item -LiteralPath $IsoPath -Force }
 
 # Single-quoted here-string (no PowerShell expansion of $f). __NAME__ is filled below;
@@ -220,21 +235,8 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $IsoPath)) {
 Write-Host "      Seed ISO OK (label CIDATA, fleetd .deb baked in)." -ForegroundColor Green
 
 # ----------------------------------------------------------------------------
-# 5. Idempotent teardown of any prior VM/disk, then create + boot
+# 5. Create + boot (teardown already done in step 2)
 # ----------------------------------------------------------------------------
-Write-Host "[4/5] Reconciling any existing VM/disk named '$Name' ..." -ForegroundColor Cyan
-if (Test-VmExists -VmName $Name) {
-    # poweroff is tolerated: it errors harmlessly if the VM is already stopped.
-    Invoke-VBox -VBoxArgs @('controlvm', $Name, 'poweroff') -Tolerate | Out-Null
-    Invoke-VBox -VBoxArgs @('unregistervm', $Name, '--delete') -Tolerate | Out-Null
-}
-if (Test-Path -LiteralPath $VmVdi) {
-    # Deregister from the media registry (else clonemedium to the same path fails), then
-    # delete the file with a short retry to ride out VBox's brief post-unregister lock.
-    Invoke-VBox -VBoxArgs @('closemedium', 'disk', $VmVdi, '--delete') -Tolerate | Out-Null
-    if (Test-Path -LiteralPath $VmVdi) { Remove-FileWithRetry -Path $VmVdi }
-}
-
 Write-Host "[5/5] Creating VM '$Name' ..." -ForegroundColor Cyan
 
 # Unique per-VM disk (own UUID) from the shared base, then grow (cloud-init growpart extends).

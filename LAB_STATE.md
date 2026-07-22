@@ -204,8 +204,22 @@ Serial log confirmed: cloud-init mounted the CIDATA seed, `apt-get install` the 
 `Started orbit.service`, `AXIOM_ORBIT_ACTIVE`, → **online in Fleet over validated TLS**. (Also
 captured the predicted Hyper-V-coexistence soft-lockup: `CPU#0 stuck for 373s` — recovered.)
 
-**Remaining:** gpu-node-2, ml-workstation, enclave-01 (+ `high-trust-enclave` dynamic label on the
-`/etc/axiom/tier.d/elevated` sentinel), Windows osquery+MDM, Android. Reusable
-`provisioning/linux/new-linux-vm.ps1` captures this recipe.
+**enclave-01 (elevated tier) enrolled + free-tier tiering PROVEN:**
+```
+$ fleetctl get host enclave-01   → labels include: Ubuntu Linux, high-trust-enclave
+Label host_count:  Ubuntu Linux = 2 (gpu-node-1 + enclave-01) · high-trust-enclave = 1 (enclave-01 ONLY)
+```
+Tiering works per ADR-0003: cloud-init (elevated template) writes `/etc/axiom/tier.d/elevated`;
+the dynamic `high-trust-enclave` label matches that **sentinel path** (osquery's `file` table has
+no content column), so only the elevated node is tiered up — **no Premium teams needed**.
+
+**⚠️ NEM concurrency ceiling (real finding):** under Hyper-V coexistence, only **~1 VM boots at a
+time** — a second concurrent boot froze in initramfs (CPU soft-lockup). Booted alone, a VM is fast
+(~26 s + ~60 s to enroll). So the fleet runs **serially / a couple at a time**, not all-concurrent.
+`new-linux-vm.ps1` hardened through 3 runtime-found bugs (EAP+stderr, ca_certs template corruption,
+teardown-before-seed ordering).
+
+**Remaining Phase 2:** gpu-node-2 + ml-workstation (mechanical repeats), Windows osquery+MDM (needs a
+Win11 Eval VM + WSTEP CA), Android AVD (biggest risk — may need a physical device).
 
 _(Phase 1+ evidence appended here as each phase passes its checks.)_
