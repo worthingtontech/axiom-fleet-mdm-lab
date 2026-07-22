@@ -10,7 +10,7 @@
 
 | | |
 |---|---|
-| **Phase** | **2 — Enroll the fleet 🔄 IN PROGRESS** (gpu-node-1 online; Linux pipeline proven) |
+| **Phase** | **3 — GitOps & CI/CD 🔄** (live Fleet driven from Git; cloud PR gates proven) · Phase 2 client VMs await Aaron's inputs |
 | **Date** | 2026-07-22 |
 | **Running now** | `axiom-core` stack at **https://fleet.axiom.lab** + **gpu-node-1** (Ubuntu 24.04 VBox VM) enrolled ONLINE. Admin creds `~/axiom-fleet-admin.txt`, fleetctl `~/.axiom-tools/…/fleetctl.exe` (rootca-set), VM artifacts in `C:\vms`. |
 | **Next (Phase 2)** | gpu-node-2 + ml-workstation + enclave-01 (tier markers + dynamic label); Windows osquery+MDM (WSTEP CA); Android AVD (or physical fallback) |
@@ -228,5 +228,26 @@ teardown-before-seed ordering).
 **Remaining Phase 2:** the Windows **client** VM (Win11 Eval ISO → VBox VM → fleetd MSI →
 osquery + auto MDM enroll; needs the mkcert CA in `LocalMachine\Root` + an interactive sign-in);
 Android AVD (emulator-only attempt, Play-Integrity risk); gpu-node-2 + ml-workstation (on-demand).
+
+### Phase 3 — GitOps & CI/CD 🔄 (2026-07-22)
+
+**GitOps (live server driven from Git):** `gitops/default.yml` (+ `fleets/unassigned.yml`, `lib/`
+skeleton), seeded from `fleetctl generate-gitops`. `fleetctl gitops --dry-run` **and** apply both
+exit 0; `windows_enabled_and_configured: true` stays on after apply; label preserved; enroll secret
+is an env-ref (`$FLEET_GLOBAL_ENROLL_SECRET`), never in Git. (ADR-0006.)
+
+**Cloud PR CI — both acceptance halves PROVEN** (PR #1, all on GitHub-hosted runners against an
+**ephemeral Fleet v4.89.1** — never touches the LAN):
+```
+Valid change     → Lint ✅  Profiles ✅  osquery-SQL ✅  gitops dry-run (ephemeral) ✅   [PR shows all gates]
+Broken .mobileconfig → Profiles ❌  (overall CI red)                                     [broken profile fails CI]
+```
+Four real CI bugs found by running it (WSTEP CA for the ephemeral Fleet, yamllint indentation/EOF,
+actionlint custom-label config). gitleaks ✅. Fixes squash-merged to main (`f9b1e77`).
+
+**Remaining Phase 3 (authored + committed; DISABLED until the self-hosted runner is registered —
+needs Aaron's OK, ADR-0007):** `apply.yml` (apply-on-merge to the LAN Fleet) and `drift-detection.yml`
+(nightly `generate-gitops` live-vs-Git). These cover the last two acceptance criteria (merge applies;
+drift flags UI changes). Also pending: `GITLEAKS_LICENSE` repo secret (free, Aaron).
 
 _(Phase 1+ evidence appended here as each phase passes its checks.)_
