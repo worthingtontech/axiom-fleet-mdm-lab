@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: label
+spec:
+  name: high-trust-enclave
+  description: AXIOM elevated trust tier
+  # osquery's `file` table has no content column, so we match on the PRESENCE of the
+  # sentinel path that the elevated cloud-init writes (/etc/axiom/tier.d/elevated).
+  query: "SELECT 1 FROM file WHERE path = '/etc/axiom/tier.d/elevated';"
+  # platform MUST be "" (empty) — "linux" is INVALID for a label spec and is rejected.
+  platform: ""
+  # Membership re-evaluates on osquery_label_update_interval (default 1h).
+  label_membership_type: dynamic

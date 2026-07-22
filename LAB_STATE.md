@@ -10,10 +10,12 @@
 
 | | |
 |---|---|
-| **Phase** | **1 — Fleet core ✅ COMPLETE** → next: Phase 2 (enroll the fleet) |
+| **Phase** | **2 — Enroll the fleet 🔄 IN PROGRESS** (gpu-node-1 online; Linux pipeline proven) |
 | **Date** | 2026-07-22 |
-| **Running now** | `axiom-core` stack up (Fleet v4.89.1 + MySQL 8 + Redis 6 + Caddy) at **https://fleet.axiom.lab**. Admin creds in `~/axiom-fleet-admin.txt` (gitignored, out-of-repo). fleetctl at `~/.axiom-tools/…/fleetctl.exe` (rootca-configured). |
-| **Next gate** | Phase 2 — build fleetd packages (`--fleet-certificate` bakes the mkcert CA), provision Multipass/VBox Linux VMs, enroll Windows osquery+MDM, Android BYOD |
+| **Running now** | `axiom-core` stack at **https://fleet.axiom.lab** + **gpu-node-1** (Ubuntu 24.04 VBox VM) enrolled ONLINE. Admin creds `~/axiom-fleet-admin.txt`, fleetctl `~/.axiom-tools/…/fleetctl.exe` (rootca-set), VM artifacts in `C:\vms`. |
+| **Next (Phase 2)** | gpu-node-2 + ml-workstation + enclave-01 (tier markers + dynamic label); Windows osquery+MDM (WSTEP CA); Android AVD (or physical fallback) |
+| **VM mechanism** | Raw VirtualBox + Ubuntu cloud image → VDI + NoCloud CIDATA seed (ADR-0002; Multipass **rejected** — broken on VBox 7.1.x/Win11 Home, Canonical #3915). NAT + `/etc/hosts fleet.axiom.lab→10.0.2.2`; TLS validates on the SAN hostname. .deb rides on the seed ISO. |
+| **Perf caveat** | Hyper-V coexistence (NEM) → first boot ~6 min with a CPU soft-lockup that recovers; `--paravirtprovider kvm` + longer enroll polls (600s) mitigate. |
 | **Live docs research** | ✅ Complete (8 agents, 0 errors). Anchored to **Fleet v4.89.1** (2026-07-16). Full brief: [docs/research/2026-07-20-phase0-1-fleet-brief.md](docs/research/2026-07-20-phase0-1-fleet-brief.md) |
 | **Git** | `main` → **github.com/worthingtontech/axiom-fleet-mdm-lab** (private, Apache-2.0). Flips public at Phase 9. |
 
@@ -182,5 +184,28 @@ provisioning. (Reminder: osqueryd ignores the OS store → Phase 2 also bakes th
 via `fleetctl package --fleet-certificate`.)
 
 _Prove it cold:_ `docker compose -f infra/docker-compose.yml up -d` → browse https://fleet.axiom.lab.
+
+### Phase 2 — Enroll the fleet 🔄 (in progress, 2026-07-22)
+
+**fleetd packages** built via the `fleetdm/fleetctl` Docker image (Windows host can only build
+`.msi` natively; the Linux container builds all types). Both bake in the enroll secret + mkcert
+CA (`--fleet-certificate`, so **osqueryd** trusts Fleet despite ignoring the OS store):
+- `fleet-osquery_1.58.0_amd64.deb` (Linux) · `fleet-osquery.msi` (Windows) — in `provisioning/build/` (gitignored).
+
+**First Linux host enrolled (gpu-node-1) — zero-touch via cloud-init:**
+```
+$ fleetctl get hosts
++--------------------------------------+------------+----------+-----------------+--------+
+| UUID                                 | HOSTNAME   | PLATFORM | OSQUERY VERSION | STATUS |
+| 77f8a835-0e20-9b4e-a27c-fd0cc099622c | gpu-node-1 | ubuntu   | 5.23.1          | online |
++--------------------------------------+------------+----------+-----------------+--------+
+```
+Serial log confirmed: cloud-init mounted the CIDATA seed, `apt-get install` the fleetd `.deb`,
+`Started orbit.service`, `AXIOM_ORBIT_ACTIVE`, → **online in Fleet over validated TLS**. (Also
+captured the predicted Hyper-V-coexistence soft-lockup: `CPU#0 stuck for 373s` — recovered.)
+
+**Remaining:** gpu-node-2, ml-workstation, enclave-01 (+ `high-trust-enclave` dynamic label on the
+`/etc/axiom/tier.d/elevated` sentinel), Windows osquery+MDM, Android. Reusable
+`provisioning/linux/new-linux-vm.ps1` captures this recipe.
 
 _(Phase 1+ evidence appended here as each phase passes its checks.)_
