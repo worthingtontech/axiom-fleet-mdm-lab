@@ -1,0 +1,73 @@
+# =============================================================================
+# AXIOM canary -> production promotion (ADR-0009)
+# =============================================================================
+# Periodically (and on demand) checks whether a canary-scoped control has soaked
+# cleanly on the canary cohort, using the telemetry the lab emits. If it has, it
+# widens the control to fleet-wide scope and opens a PR -- promotion is
+# human-reviewed and merged, never auto-applied to production. The subsequent
+# merge is what apply.yml rolls out fleet-wide.
+#
+# Runs on the SELF-HOSTED runner (it needs LAN access to the loopback Prometheus
+# and the LAN Fleet). Same trust model as apply.yml / drift-detection.yml
+# (ADR-0007). DISABLED until the runner is registered.
+# =============================================================================
+name: canary-promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Open a promotion PR if the gate passes"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "0 */6 * * *"   # every 6h: re-check the soak
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: canary-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: [self-hosted, fleet-apply]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the promotion gate (dry run)
+        id: gate
+        shell: powershell
+        run: |
+          & gitops/promote/promote.ps1
+          $code = $LASTEXITCODE
+          # 0 = promote, 1 = hold (normal), 2 = error. Only 2 fails the job.
+          if ($code -eq 2) { exit 2 }
+          "decision=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          exit 0
+
+      - name: Hold (canary not ready)
+        if: steps.gate.outputs.decision != '0'
+        run: echo "Canary gate HELD -- no promotion this run (see gate output above)."
+
+      - name: Promote -> open PR
+        if: steps.gate.outputs.decision == '0' && (github.event_name == 'schedule' || inputs.apply)
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Widen the control to fleet-wide scope.
+          & gitops/promote/promote.ps1 -Apply
+          $branch = "promote/canary-$(Get-Date -Format yyyyMMdd-HHmmss)"
+          git config user.name  "axiom-promote-bot"
+          git config user.email "axiom-promote-bot@users.noreply.github.com"
+          git checkout -b $branch
+          git add gitops/lib/linux/policies/canary-auditd.yml
+          git commit -m "promote(canary): widen 'auditd running' to fleet-wide after clean soak`n`nCanary cohort passed the telemetry gate (gitops/promote/promote.ps1): zero failing`nhosts sustained over the soak window. Widen the control's query from canary-scoped`nto fleet-wide. Merging this applies it to production via apply.yml."
+          git push origin $branch
+          gh pr create --fill --base main --head $branch `
+            --title "promote(canary): auditd running -> fleet-wide (clean soak)" `
+            --body "Automated canary promotion (ADR-0009). The telemetry gate passed: the canary cohort has zero failing hosts sustained over the soak window. This PR widens the control from canary-scoped to fleet-wide; merging rolls it out to production via apply.yml. Revert this PR to roll back."

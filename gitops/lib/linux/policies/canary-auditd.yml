@@ -1,0 +1,19 @@
+# AXIOM policy library -- referenced from gitops/default.yml via `- path:`.
+# This is the worked example for the canary → production rollout (ADR-0009).
+#
+# CANARY-SCOPED: the query auto-passes on any host WITHOUT the /etc/axiom/canary
+# sentinel, and only truly evaluates auditd on canary hosts. So it is live in
+# GitOps and drift-tracked, but only the canary cohort is graded. Because
+# non-canary hosts auto-pass, the exporter's global
+# axiom_policy_failing_hosts{policy="Linux -- auditd running (canary)"} equals the
+# CANARY failing-host count -- which is exactly what gitops/promote/promote.ps1 gates on.
+#
+# PROMOTION widens the scope: replace the whole `query:` with just the real check
+#   SELECT 1 FROM processes WHERE name = 'auditd';
+# (promote.ps1 --Apply does this rewrite). Remediation: lib/linux/scripts/install-auditd.sh.
+- name: "Linux -- auditd running (canary)"
+  platform: linux
+  critical: false
+  description: "Ensures the Linux audit daemon (auditd) is running so security-relevant events are recorded. CANARY-scoped per ADR-0009: only hosts with /etc/axiom/canary are graded until this control is promoted fleet-wide. Reference Ubuntu 24.04 CIS 4.1.1.x / MITRE ATT&CK M1047."
+  resolution: "Run the remediation script gitops/lib/linux/scripts/install-auditd.sh (installs + enables auditd), or apt-get install -y auditd && systemctl enable --now auditd. Once the canary cohort is green over the soak window, promote to production (widen the query scope)."
+  query: "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM file WHERE path = '/etc/axiom/canary') OR EXISTS (SELECT 1 FROM processes WHERE name = 'auditd');"

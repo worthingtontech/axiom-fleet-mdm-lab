@@ -126,6 +126,19 @@ def poll_once():
     lines.append("# HELP axiom_enclave_canary_failing_hosts Hosts where the weights-cache FIM canary policy is failing.")
     lines.append("# TYPE axiom_enclave_canary_failing_hosts gauge")
     lines.append(f"axiom_enclave_canary_failing_hosts {canary_failing}")
+
+    # Per-label cohort sizes -- the canary/progressive-rollout gate (ADR-0009)
+    # checks axiom_label_hosts{label="canary"} >= 1 before trusting a green
+    # canary metric (a gate that passes on an empty cohort is meaningless).
+    labels = get("/api/latest/fleet/labels").get("labels", [])
+    lines.append("# HELP axiom_label_hosts Host count in a custom Fleet label (cohort size).")
+    lines.append("# TYPE axiom_label_hosts gauge")
+    for lb in labels:
+        if lb.get("label_type") == "builtin":
+            continue
+        name = _esc(lb.get("name", "unknown"))
+        lines.append(f'axiom_label_hosts{{label="{name}"}} {int(lb.get("host_count", 0) or 0)}')
+
     lines.append("# TYPE axiom_scrape_errors_total counter")
     lines.append(f"axiom_scrape_errors_total {_scrape_errors}")
     return "\n".join(lines) + "\n"

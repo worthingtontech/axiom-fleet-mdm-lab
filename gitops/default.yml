@@ -24,11 +24,18 @@ controls:
   # generate-gitops does NOT emit it, so it is added by hand; omitting it on apply
   # would silently turn Windows MDM back OFF. Verified against the live server.
   windows_enabled_and_configured: true
+  # NB: GitOps `scripts:` is team-scoped (Premium). On Free the remediation script
+  # (gitops/lib/linux/scripts/install-auditd.sh) is a library artifact delivered via
+  # the run-script API (Phase 4/8), not declared here.
 labels:
 - description: AXIOM elevated trust tier
   label_membership_type: dynamic
   name: high-trust-enclave
   query: SELECT 1 FROM file WHERE path = '/etc/axiom/tier.d/elevated';
+- description: AXIOM canary cohort -- progressive-rollout gate (ADR-0009)
+  label_membership_type: dynamic
+  name: canary
+  query: SELECT 1 FROM file WHERE path = '/etc/axiom/canary';
 org_settings:
   activity_expiry_settings:
     activity_expiry_enabled: false
@@ -246,6 +253,10 @@ policies:
   description: "Ensures the Windows build is at or above 22631 (Windows 11 23H2 baseline) for current patch posture. Reference Windows 11 patch posture."
   resolution: "Apply the latest cumulative and feature updates to reach the minimum supported build."
   query: 'SELECT 1 FROM os_version WHERE CAST(build AS INTEGER) >= 22631;'
+# Canary-scoped control from the policy LIBRARY (the lib/ pattern) -- referenced by
+# path rather than inlined. Auto-passes on non-canary hosts; promote.ps1 widens it
+# to fleet-wide after a clean soak (ADR-0009 progressive rollout).
+- path: lib/linux/policies/canary-auditd.yml
 reports:
 # Scheduled queries (Fleet renamed the GitOps key 'queries' -> 'reports') --
 # Phase 5 telemetry sources. Results log via the filesystem plugin

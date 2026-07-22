@@ -48,6 +48,11 @@ param(
     [ValidateSet('standard', 'elevated')]
     [string]$Tier = 'standard',
 
+    # Add the host to the canary cohort: drops /etc/axiom/canary, which the `canary`
+    # dynamic label + canary-scoped controls key on (ADR-0009 progressive rollout).
+    # Independent of -Tier (a host can be standard-tier AND canary).
+    [switch]$Canary,
+
     [string]$DebPath = 'C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\provisioning\build\build\fleet-osquery_1.58.0_amd64.deb',
     [string]$RootCaPath = 'C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\infra\tls\rootCA.pem',
     [string]$VmDir = 'C:\vms'
@@ -171,6 +176,17 @@ Write-Host "[1/5] Rendering cloud-init ($TemplateName)..." -ForegroundColor Cyan
 
 $userData = Get-Content -LiteralPath $TemplatePath -Raw
 $userData = $userData.Replace('__HOSTNAME__', $Name)
+
+# -Canary: inject the canary cohort sentinel (ADR-0009). Appended as the first
+# write_files entry (no `$` in the block, so regex replacement is literal-safe).
+if ($Canary) {
+    $canaryBlock = "write_files:`n  # AXIOM canary cohort sentinel (ADR-0009 progressive rollout).`n  - path: /etc/axiom/canary`n    content: `"`"`n    permissions: '0644'"
+    $userData = [regex]::Replace($userData, '(?m)^write_files:\s*$', $canaryBlock)
+    if ($userData -notmatch '/etc/axiom/canary') {
+        throw "Canary marker injection failed (no 'write_files:' anchor in $TemplateName)."
+    }
+    Write-Host "      [canary] host will join the canary cohort (/etc/axiom/canary)." -ForegroundColor Yellow
+}
 
 # NOTE: the mkcert CA is baked into the fleetd .deb at build time
 # (fleetctl package --fleet-certificate), which is all enrollment needs. We do NOT

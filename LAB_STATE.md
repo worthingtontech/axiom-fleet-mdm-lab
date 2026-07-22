@@ -99,6 +99,7 @@ data-flow walkthroughs.
 | [0006](docs/adr/0006-gitops-ci-architecture.md) | GitOps layout + CI/CD gate architecture | **Accepted** |
 | [0007](docs/adr/0007-self-hosted-runner-security.md) | Self-hosted runner security model | **Accepted** |
 | [0008](docs/adr/0008-osquery-table-detection-choices.md) | Policy detection tables under fleetd's osquery constraints (augeas/iptables/suid_bin) | **Accepted** |
+| [0009](docs/adr/0009-canary-progressive-rollout.md) | Canary→production progressive rollout, telemetry-gated, on Free (self-scoping SQL) | **Accepted** |
 
 ---
 
@@ -334,5 +335,39 @@ RESTORE    VM reboot -> orbit.service auto-starts -> heartbeat resumes -> hosts_
 `axiom_critical_policy_failing_hosts` stays 0 — the Compliance dashboard keys on **total failing
 checks** instead. Grafana is on **http://127.0.0.1:3000** (loopback only; Caddy `:443` remains the sole
 LAN-facing port). Secrets (Grafana admin, exporter token, /metrics password) live only in `infra/.env`.
+
+### Progressive rollout — canary → production, telemetry-gated ✅ (2026-07-22)
+
+The headline platform-engineering capability: roll out a control to a **canary** cohort first,
+promote fleet-wide **only if the telemetry stays green** over a soak. Design + Free-tier rationale in
+[ADR-0009](docs/adr/0009-canary-progressive-rollout.md); front door
+[gitops/promote/README.md](gitops/promote/README.md).
+
+- **Free-tier mechanism:** Fleet *teams* + per-label policy scoping are Premium, so the canary cohort
+  uses **self-scoping SQL** (the ADR-0003 lever). A control ships **canary-scoped** (auto-passes on
+  non-canary hosts; only grades hosts carrying `/etc/axiom/canary` — `new-linux-vm.ps1 -Canary`).
+  Because non-canary hosts auto-pass, the exporter's `axiom_policy_failing_hosts{policy}` **is** the
+  canary failing count — the gate reads it directly.
+- **Vertical slice (populates `lib/`):** [`gitops/lib/linux/policies/canary-auditd.yml`](gitops/lib/linux/policies/canary-auditd.yml)
+  (policy, referenced from `default.yml` by `- path:`) + [`gitops/lib/linux/scripts/install-auditd.sh`](gitops/lib/linux/scripts/install-auditd.sh)
+  (remediation). `fleetctl gitops` dry-run + apply both accept it — **23 policies** live (22 inline +
+  1 from the library), plus the new `canary` label.
+- **The gate** [`gitops/promote/promote.ps1`](gitops/promote/promote.ps1) queries Prometheus and
+  promotes only if: telemetry alive **AND** canary cohort populated **AND** zero canary failures over
+  the soak. [`.github/workflows/promote.yml`](.github/workflows/promote.yml) runs it on the
+  self-hosted runner and, on PASS, opens a **PR** (human-reviewed; merge → `apply.yml` → fleet-wide).
+
+**Verified live** — the gate runs end-to-end against Prometheus and **correctly HOLDS**, with the
+telemetry-alive (`=1`) and zero-failure (`=0`) checks green and the *only* block being the honest
+empty-cohort guard:
+```
+[1] telemetry alive           axiom_exporter_up = 1
+[2] canary cohort populated   axiom_label_hosts{label=canary} = 0  (need >= 1)
+[3] no canary failures (soak)  max_over_time(failing[2h]) = 0
+RESULT: HOLD -- canary cohort has < 1 host (nothing to gate on)   [exit 1]
+```
+Proves the load-bearing property: **it will not promote on a green-but-empty cohort.** The full live
+loop (`-Canary` host → auditd fails → run-script remediation → passes → PROMOTE → PR) awaits a canary
+VM (single-VM NEM ceiling).
 
 _(Phase 6+ evidence appended here as each phase passes its checks.)_
