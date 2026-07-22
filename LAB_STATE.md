@@ -10,9 +10,9 @@
 
 | | |
 |---|---|
-| **Phase** | **3 — GitOps & CI/CD 🔄** (live Fleet driven from Git; cloud PR gates proven) · Phase 2 client VMs await Aaron's inputs |
+| **Phase** | **4 — Policy-as-code ✅** (22 policies live; break→red→fix→green PROVEN on enclave-01) · Phase 2 client VMs + Phase 3 self-hosted runner await Aaron's inputs |
 | **Date** | 2026-07-22 |
-| **Running now** | `axiom-core` stack at **https://fleet.axiom.lab** + **gpu-node-1** (Ubuntu 24.04 VBox VM) enrolled ONLINE. Admin creds `~/axiom-fleet-admin.txt`, fleetctl `~/.axiom-tools/…/fleetctl.exe` (rootca-set), VM artifacts in `C:\vms`. |
+| **Running now** | `axiom-core` stack at **https://fleet.axiom.lab** + **enclave-01** (Ubuntu 24.04 elevated VBox VM, Fleet host **id=4**) enrolled ONLINE — **9/10 Linux policies green** (only #1 LUKS fails, documented). Admin creds `~/axiom-fleet-admin.txt`, fleetctl `~/.axiom-tools/…/fleetctl.exe` (rootca-set), VM artifacts in `C:\vms`. |
 | **Next (Phase 2)** | gpu-node-2 + ml-workstation + enclave-01 (tier markers + dynamic label); Windows osquery+MDM (WSTEP CA); Android AVD (or physical fallback) |
 | **VM mechanism** | Raw VirtualBox + Ubuntu cloud image → VDI + NoCloud CIDATA seed (ADR-0002; Multipass **rejected** — broken on VBox 7.1.x/Win11 Home, Canonical #3915). NAT + `/etc/hosts fleet.axiom.lab→10.0.2.2`; TLS validates on the SAN hostname. .deb rides on the seed ISO. |
 | **Perf caveat** | Hyper-V coexistence (NEM) → first boot ~6 min with a CPU soft-lockup that recovers; `--paravirtprovider kvm` + longer enroll polls (600s) mitigate. |
@@ -25,7 +25,7 @@
 - [x] **Phase 1** — Fleet core ✅ _(Compose: Fleet v4.89.1 + MySQL 8 + Redis 6 + Caddy + mkcert TLS — both acceptance checks pass, evidence below)_
 - [ ] **Phase 2** — Enroll the fleet (fleetd packages, Linux VMs, Windows osquery+MDM, Android)
 - [ ] **Phase 3** — GitOps & CI/CD (fleet-gitops layout, GH Actions gates, self-hosted runner, drift job)
-- [ ] **Phase 4** — Policy-as-code (≥15 policies + compliance matrix + test plans)
+- [x] **Phase 4** — Policy-as-code ✅ _(22 policies + critical flags + CIS/MITRE matrix + per-policy test plans; break→red→fix→green proven live on enclave-01; osquery-table detection choices in ADR-0008)_
 - [ ] **Phase 5** — Telemetry (Vector→Loki, Prometheus, Grafana dashboards-as-JSON)
 - [ ] **Phase 6** — Zero-touch provisioning (Linux cloud-init, Windows unattend/PPKG, ADE runbook)
 - [ ] **Phase 7** — Identity-driven access (Keycloak SAML SSO + device-trust demo app)
@@ -94,6 +94,11 @@ data-flow walkthroughs.
 | [0001](docs/adr/0001-right-sized-topology.md) | Right-sized topology for a 63 GB Win 11 Home host | Proposed |
 | [0002](docs/adr/0002-vm-backend-virtualbox-cloudinit.md) | VirtualBox + cloud-init (NoCloud) as VM backend | Proposed |
 | [0003](docs/adr/0003-free-tier-trust-tiering.md) | Trust-tiering on Free via self-scoping policy SQL (NOT label/enroll-secret scoping) | **Accepted** |
+| [0004](docs/adr/0004-tls-termination-and-lab-dns.md) | Caddy TLS termination + mkcert CA + lab DNS | **Accepted** |
+| [0005](docs/adr/0005-windows-mdm-wstep.md) | Windows MDM enablement via WSTEP identity CA | **Accepted** |
+| [0006](docs/adr/0006-gitops-ci-architecture.md) | GitOps layout + CI/CD gate architecture | **Accepted** |
+| [0007](docs/adr/0007-self-hosted-runner-security.md) | Self-hosted runner security model | **Accepted** |
+| [0008](docs/adr/0008-osquery-table-detection-choices.md) | Policy detection tables under fleetd's osquery constraints (augeas/iptables/suid_bin) | **Accepted** |
 
 ---
 
@@ -250,4 +255,44 @@ needs Aaron's OK, ADR-0007):** `apply.yml` (apply-on-merge to the LAN Fleet) and
 (nightly `generate-gitops` live-vs-Git). These cover the last two acceptance criteria (merge applies;
 drift flags UI changes). Also pending: `GITLEAKS_LICENSE` repo secret (free, Aaron).
 
-_(Phase 1+ evidence appended here as each phase passes its checks.)_
+### Phase 4 — Policy-as-code ✅ (2026-07-22)
+
+**22 policies** in [`gitops/default.yml`](gitops/default.yml) (`policies:`) across 3 platforms — 10
+Linux (3 enclave-scoped), 6 macOS, 6 Windows — each with a `critical:` flag, description, resolution,
+and a CIS + MITRE ATT&CK mapping in [docs/compliance-matrix.md](docs/compliance-matrix.md). Per-policy
+break/fix **test plans** in [docs/test-plans.md](docs/test-plans.md), authored + **adversarially
+verified** by a 25-agent workflow (3 platform authors → 22 skeptics; the verify pass caught the #7
+allowlist defect below). Agent packages are now built reproducibly with `--enable-scripts` via
+[`provisioning/build-packages.ps1`](provisioning/build-packages.ps1) (required for the run-script API
++ Phase 8 remediation).
+
+**ACCEPTANCE — break→red→fix→green PROVEN live** on `enclave-01`, every flip driven by Fleet's free
+`fleetctl run-script` (no SSH) and confirmed by Refetch:
+```
+#8 weights-cache FIM canary:  PASS  --append 1 byte (sha256 04c4afd9…)-->  FAIL
+                                    --rewrite exact 16 bytes (sha256 7954095f…0b92 = pinned)-->  PASS
+```
+Also verified red↔green live: **#2** firewall-effective (`ufw disable`/rogue listener), **#3**
+root-account-locked (`chpasswd` ↔ `passwd -l root`), **#7** unauthorized-SUID (`/usr/local/bin` setuid drop).
+
+**Live posture (enclave-01, host id=4): 9/10 Linux policies green.** Only **#1 LUKS FAILs** — the
+throwaway cloud image is not encrypted; FDE *enforcement*/escrow is Fleet **Premium**, so we **detect**
+the gap (a genuine red, documented). macOS/Windows policies are `platform:`-pinned and authored-only
+until those hosts enroll.
+
+**Detection engineering — diagnosed on the live agent, not assumed (ADR-0008):** `fleetd`'s osquery
+ships **no augeas lenses** (table returns 0 rows; autoload excludes `ufw.conf`+`sshd_config` even after
+installing 462 lenses), the **`iptables` table is empty on 24.04** (nftables backend), and `suid_bin`
+reports **usrmerge `/bin`==`/usr/bin` aliases**. Three policies were therefore re-authored onto
+**populated** tables — #2 → `listening_ports` (inbound attack surface), #3 → `shadow`
+(`password_status='locked'`), #7 → **directory-scoped** `suid_bin`. During this, #2 caught a real
+regression (aide's `postfix` recommend opened `0.0.0.0:25`) — remediated by purging the MTA and pinning
+`--no-install-recommends aide` in the elevated cloud-init.
+
+**Webhook automation** (`failing_policies_webhook`) is authored in GitOps but disabled — its
+destination is the Phase 8 SOAR-lite receiver; it activates there.
+
+_Prove it live:_ `fleetctl run-script --host enclave-01 --script-path <break>.sh` then Refetch → policy
+flips red; run the fix script → green. Commands per policy in `docs/test-plans.md`.
+
+_(Phase 5+ evidence appended here as each phase passes its checks.)_

@@ -10,6 +10,9 @@ users:
     lock_passwd: false
     plain_text_passwd: 'axiom'   # console/debug login only
     shell: /bin/bash
+    ssh_authorized_keys:
+      # AXIOM lab key (C:\vms\axiom_key) -- non-interactive SSH for ops/demos.
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILqzsC4CAfs9hjXpvsCuluEsULBxRmDe9q5ziC5DuWDg axiom-lab
 ssh_pwauth: true
 write_files:
   # 10.0.2.2 = VirtualBox NAT gateway = the Windows host running Caddy:443.

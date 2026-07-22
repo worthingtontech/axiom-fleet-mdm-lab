@@ -10,6 +10,9 @@ users:
     lock_passwd: false
     plain_text_passwd: 'axiom'
     shell: /bin/bash
+    ssh_authorized_keys:
+      # AXIOM lab key (C:\vms\axiom_key) -- non-interactive SSH for ops/demos.
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILqzsC4CAfs9hjXpvsCuluEsULBxRmDe9q5ziC5DuWDg axiom-lab
 ssh_pwauth: true
 write_files:
   # 10.0.2.2 = VirtualBox NAT gateway = the Windows host running Caddy:443.
@@ -33,4 +36,8 @@ runcmd:
   - [sh, -c, "mkdir -p /mnt/seed && (mount -L CIDATA /mnt/seed || mount /dev/sr0 /mnt/seed || mount /dev/sr1 /mnt/seed)"]
   - [sh, -c, "apt-get install -y /mnt/seed/fleet-osquery.deb"]
   - [sh, -c, "umount /mnt/seed || true"]
+  # Elevated-bar host FIM (policy #10). --no-install-recommends is deliberate: the default
+  # recommends pull in postfix, whose SMTP daemon opens 0.0.0.0:25 -- which policy #2
+  # (no unexpected inbound listeners) would correctly flag as new attack surface.
+  - [sh, -c, "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends aide aide-common"]
 final_message: "AXIOM __HOSTNAME__ (elevated) cloud-init done after $UPTIME s"

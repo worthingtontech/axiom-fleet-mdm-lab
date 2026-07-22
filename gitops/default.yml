@@ -120,18 +120,18 @@ policies:
   description: "Ensures the root/data volume uses LUKS full-disk encryption (osquery disk_encryption.encrypted = 1), protecting data at rest if a node is lost or seized. Reference CIS Controls v8 3.6."
   resolution: "Reprovision the host with LUKS enabled at install time or migrate data onto an encrypted volume; verify with lsblk and cryptsetup status."
   query: 'SELECT 1 FROM disk_encryption WHERE encrypted = 1;'
-- name: Linux -- host firewall (ufw) enabled
+- name: Linux -- host firewall effective (no unexpected inbound listeners)
   platform: linux
   critical: true
-  description: "Confirms the Uncomplicated Firewall (ufw) is enabled so only explicitly permitted inbound traffic reaches the node. Reference Ubuntu 24.04 CIS 4.2.x."
-  resolution: "Enable the host firewall with 'ufw enable' and confirm ENABLED=yes in /etc/ufw/ufw.conf."
-  query: 'SELECT 1 FROM augeas WHERE path = ''/etc/ufw/ufw.conf'' AND label = ''ENABLED'' AND value = ''yes'';'
-- name: Linux -- SSH PermitRootLogin disabled
+  description: "Verifies the node exposes no unexpected inbound TCP attack surface: no non-loopback TCP listener outside the allowlist (SSH/22). ufw is enabled at provision, but on Ubuntu 24.04 ufw's nftables backend leaves osquery's iptables table empty and fleetd ships no augeas lenses, so the firewall's EFFECT (which inbound ports are reachable) is the observable, tamper-evident signal. Reference Ubuntu 24.04 CIS 4.x (host firewall / minimize attack surface)."
+  resolution: "Bind unexpected services to loopback or close them; keep ufw enabled (ufw enable) so only SSH is reachable. Investigate any process opening a non-loopback port."
+  query: 'SELECT 1 WHERE NOT EXISTS ( SELECT 1 FROM listening_ports WHERE protocol = 6 AND address NOT LIKE ''127.%'' AND address != ''::1'' AND port NOT IN (22) );'
+- name: Linux -- root account locked (no direct root login)
   platform: linux
   critical: true
-  description: "Verifies sshd is configured with PermitRootLogin no, preventing direct root SSH access and forcing accountable per-user logins. Reference Ubuntu 24.04 CIS 5.1.20."
-  resolution: "Set PermitRootLogin no in /etc/ssh/sshd_config and reload the service (systemctl reload ssh)."
-  query: 'SELECT 1 FROM augeas WHERE path = ''/etc/ssh/sshd_config'' AND label = ''PermitRootLogin'' AND lower(value) = ''no'';'
+  description: "Verifies the root account is locked (no usable password), blocking direct interactive/SSH root login and forcing accountable per-user sudo. osquery cannot read sshd_config on this build (fleetd ships no augeas lenses), so root-login hardening is asserted via the observable shadow password status. Provisioning also sets PermitRootLogin no. Reference Ubuntu 24.04 CIS 5.x (disable/restrict root login)."
+  resolution: "Lock the root account: passwd -l root (or usermod -L root). Confirm no non-root UID-0 account exists and PermitRootLogin no is set in sshd_config."
+  query: 'SELECT 1 FROM shadow WHERE username = ''root'' AND password_status = ''locked'';'
 - name: Linux -- OS at or above 24.04 baseline
   platform: linux
   critical: false
@@ -150,12 +150,12 @@ policies:
   description: "Verifies unattended-upgrades is installed so security patches apply automatically. Reference Ubuntu CIS 1.2.2.1."
   resolution: "Install and enable automatic updates: apt-get install unattended-upgrades then dpkg-reconfigure unattended-upgrades."
   query: 'SELECT 1 FROM deb_packages WHERE name = ''unattended-upgrades'' AND status LIKE ''%installed%'';'
-- name: Linux -- no unauthorized SUID binaries
+- name: Linux -- no unauthorized SUID/SGID binaries (outside system dirs)
   platform: linux
   critical: false
-  description: "Detects setuid/setgid binaries outside the approved allowlist, a common privilege-escalation and persistence vector. Reference Ubuntu CIS 7.1.13."
-  resolution: "Investigate any flagged SUID binary; remove the setuid bit (chmod u-s) or remove the binary if it is not required."
-  query: 'SELECT 1 WHERE NOT EXISTS ( SELECT 1 FROM suid_bin WHERE path NOT IN (''/usr/bin/sudo'',''/usr/bin/passwd'',''/usr/bin/chsh'',''/usr/bin/chfn'',''/usr/bin/newgrp'',''/usr/bin/gpasswd'',''/usr/bin/mount'',''/usr/bin/umount'',''/usr/bin/su'',''/usr/bin/pkexec'',''/usr/lib/openssh/ssh-keysign'') );'
+  description: "Flags any setuid/setgid binary located OUTSIDE the OS-managed directories (/bin, /usr/bin, /sbin, /usr/sbin, /usr/lib, /usr/libexec). A rogue SUID binary dropped in a writable path (/tmp, /opt, /home, /usr/local, /var, /dev/shm) is a classic privilege-escalation / persistence vector. Directory-scoped by design so it is robust to usrmerge (/bin==/usr/bin aliasing in osquery's suid_bin) and to base-package churn, unlike a brittle per-path allowlist. Reference Ubuntu 24.04 CIS 7.1.13 / MITRE ATT&CK T1548.001."
+  resolution: "Investigate any flagged binary; remove the setuid/setgid bit (chmod u-s,g-s) or delete it if unauthorized. Package legitimate local SUID tooling and place it under an OS-managed path, or extend this policy's allowed-directory list deliberately."
+  query: 'SELECT 1 WHERE NOT EXISTS ( SELECT 1 FROM suid_bin WHERE path NOT LIKE ''/bin/%'' AND path NOT LIKE ''/usr/bin/%'' AND path NOT LIKE ''/sbin/%'' AND path NOT LIKE ''/usr/sbin/%'' AND path NOT LIKE ''/usr/lib/%'' AND path NOT LIKE ''/usr/libexec/%'' );'
 - name: AXIOM enclave -- weights-cache FIM canary unchanged
   platform: linux
   critical: true
