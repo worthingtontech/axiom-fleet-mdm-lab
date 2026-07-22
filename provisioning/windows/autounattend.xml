@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+=============================================================================
+ Project AXIOM : provisioning/windows/autounattend.xml
+=============================================================================
+ FALLBACK answer file for a MANUAL Windows 11 ISO install, for when you are NOT
+ driving the install through `VBoxManage unattended install` (which supplies its
+ own generated answer file from win_nt6_unattended.xml). Use this if you install
+ Win11 by hand, e.g. booting the ISO in the VBox GUI, or from a USB stick.
+
+ HOW WINDOWS PICKS IT UP: Windows Setup auto-detects a file named
+ `autounattend.xml` at the ROOT of any attached removable media (a FAT32 USB, or
+ injected into the install ISO root, or a small extra ISO/floppy). No prompt.
+
+ WHAT IT AUTOMATES (grounded in the same facts as the VBox template):
+   * Win11 hardware gate bypass: LabConfig BypassTPMCheck / BypassSecureBootCheck
+     / BypassRAMCheck / BypassStorageCheck / BypassCPUCheck, written in BOTH the
+     windowsPE and specialize passes (so in-place upgrades stay unblocked too).
+   * OOBE Microsoft-account bypass: a local admin account is created in
+     oobeSystem AND HKLM\...\OOBE\BypassNRO=1 is set in specialize, so the
+     "let's connect you to a network / sign in with Microsoft" gate is skipped.
+   * Local admin 'axiom' + AutoLogon: AutoLogon is the interactive session that
+     Windows MDM enrollment requires; a box at the lock screen reports MDM "Off".
+   * ComputerName corp-win-01, UEFI/GPT disk layout, en-US, UTC.
+   * FirstLogonCommands: turns off the network-select popup and, IF an AXIOMWIN
+     provisioning medium is attached (\axiom\first-logon.ps1, built by
+     new-windows-vm.ps1), runs it to do hosts + rootCA + fleetd MSI. If no such
+     medium is attached, that command is simply a no-op and you run first-logon.ps1
+     by hand afterwards.
+
+ EDIT BEFORE USE:
+   * Password below is the LAB DEFAULT 'P@ssw0rd!23' in PLAINTEXT. Fine for a
+     throwaway lab VM (the answer file itself is the secret boundary); CHANGE it
+     before this VM ever leaves the lab, and delete the media afterwards.
+   * ImageIndex is 1 (single-edition Enterprise Eval ISO). If you use a
+     multi-edition retail ISO, set the right index (dism /Get-WimInfo, or the
+     machine-readable output of "VBoxManage unattended detect") and, if that
+     edition needs it, add a ProductKey under UserData. Win11 Home generic key:
+     YTMG3-N6DKC-DKB77-7M9GH-8HVX7 (Enterprise Eval needs no key).
+
+ See docs/adr/0005-windows-mdm-enablement.md and runbooks/enroll-windows.md.
+=============================================================================
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend"
+          xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+    <!-- windowsPE: partition + image + Win11 hardware-gate bypass -->
+    <settings pass="windowsPE">
+        <component name="Microsoft-Windows-International-Core-WinPE"
+                   processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+                   language="neutral" versionScope="nonSxS">
+            <SetupUILanguage>
+                <UILanguage>en-US</UILanguage>
+            </SetupUILanguage>
+            <InputLocale>en-US</InputLocale>
+            <SystemLocale>en-US</SystemLocale>
+            <UILanguage>en-US</UILanguage>
+            <UserLocale>en-US</UserLocale>
+        </component>
+
+        <component name="Microsoft-Windows-Setup"
+                   processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+                   language="neutral" versionScope="nonSxS">
+
+            <DiskConfiguration>
+                <WillShowUI>OnError</WillShowUI>
+                <Disk wcm:action="add">
+                    <DiskID>0</DiskID>
+                    <WillWipeDisk>true</WillWipeDisk>
+                    <CreatePartitions>
+                        <!-- UEFI/GPT: WinRE, EFI, MSR, then Windows. -->
+                        <CreatePartition wcm:action="add">
+                            <Order>1</Order><Type>Primary</Type><Size>300</Size>
+                        </CreatePartition>
+                        <CreatePartition wcm:action="add">
+                            <Order>2</Order><Type>EFI</Type><Size>100</Size>
+                        </CreatePartition>
+                        <CreatePartition wcm:action="add">
+                            <Order>3</Order><Type>MSR</Type><Size>128</Size>
+                        </CreatePartition>
+                        <CreatePartition wcm:action="add">
+                            <Order>4</Order><Type>Primary</Type><Extend>true</Extend>
+                        </CreatePartition>
+                    </CreatePartitions>
+                    <ModifyPartitions>
+                        <ModifyPartition wcm:action="add">
+                            <Order>1</Order><PartitionID>1</PartitionID>
+                            <Label>WINRE</Label><Format>NTFS</Format>
+                            <TypeID>de94bba4-06d1-4d40-a16a-bfd50179d6ac</TypeID>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Order>2</Order><PartitionID>2</PartitionID>
+                            <Label>EFI</Label><Format>FAT32</Format>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Order>3</Order><PartitionID>3</PartitionID>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Order>4</Order><PartitionID>4</PartitionID>
+                            <Label>Windows</Label><Letter>C</Letter><Format>NTFS</Format>
+                        </ModifyPartition>
+                    </ModifyPartitions>
+                </Disk>
+            </DiskConfiguration>
+
+            <UserData>
+                <!-- Enterprise Eval activates without a key. For a keyed edition
+                     add a ProductKey element with the Key here. -->
+                <AcceptEula>true</AcceptEula>
+                <FullName>AXIOM Admin</FullName>
+                <Organization>Axiom Intelligence</Organization>
+            </UserData>
+
+            <ImageInstall>
+                <OSImage>
+                    <InstallFrom>
+                        <MetaData wcm:action="add">
+                            <Key>/IMAGE/INDEX</Key>
+                            <Value>1</Value>
+                        </MetaData>
+                    </InstallFrom>
+                    <InstallTo>
+                        <DiskID>0</DiskID>
+                        <PartitionID>4</PartitionID>
+                    </InstallTo>
+                    <WillShowUI>OnError</WillShowUI>
+                    <InstallToAvailablePartition>false</InstallToAvailablePartition>
+                </OSImage>
+            </ImageInstall>
+
+            <!-- Win11 minimum-hardware gate bypass (WinPE pass). -->
+            <RunAsynchronous>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>3</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>4</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>5</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+            </RunAsynchronous>
+        </component>
+    </settings>
+
+    <!-- specialize: ComputerName + persisted bypass + OOBE BypassNRO -->
+    <settings pass="specialize">
+        <component name="Microsoft-Windows-Shell-Setup"
+                   processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+                   language="neutral" versionScope="nonSxS">
+            <ComputerName>corp-win-01</ComputerName>
+        </component>
+
+        <component name="Microsoft-Windows-Deployment"
+                   processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+                   language="neutral" versionScope="nonSxS">
+            <RunAsynchronous>
+                <!-- Persist the hardware bypass into the installed OS. -->
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>3</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>4</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>5</Order>
+                    <Path>reg.exe ADD HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+                <!-- OOBE local-account bypass (belt and suspenders with the local
+                     account created in oobeSystem). Newer 24H2/25H2 builds drop the
+                     bypassnro.cmd script but this registry value still works. -->
+                <RunAsynchronousCommand wcm:action="add">
+                    <Order>6</Order>
+                    <Path>reg.exe ADD HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+                </RunAsynchronousCommand>
+            </RunAsynchronous>
+        </component>
+    </settings>
+
+    <!-- oobeSystem: local admin + AutoLogon + OOBE skip -->
+    <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-International-Core"
+                   processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+                   language="neutral" versionScope="nonSxS">
+            <InputLocale>en-US</InputLocale>
+            <SystemLocale>en-US</SystemLocale>
+            <UILanguage>en-US</UILanguage>
+            <UserLocale>en-US</UserLocale>
+        </component>
+
+        <component name="Microsoft-Windows-Shell-Setup"
+                   processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+                   language="neutral" versionScope="nonSxS">
+
+            <AutoLogon>
+                <!-- LAB DEFAULT plaintext password; change before leaving the lab. -->
+                <Password><Value>P@ssw0rd!23</Value><PlainText>true</PlainText></Password>
+                <Enabled>true</Enabled>
+                <Username>axiom</Username>
+                <!-- Cap auto-logins if this VM ever leaves the lab via LogonCount. -->
+            </AutoLogon>
+
+            <UserAccounts>
+                <AdministratorPassword>
+                    <Value>P@ssw0rd!23</Value><PlainText>true</PlainText>
+                </AdministratorPassword>
+                <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                        <Name>axiom</Name>
+                        <DisplayName>AXIOM Admin</DisplayName>
+                        <Group>administrators;users</Group>
+                        <Password><Value>P@ssw0rd!23</Value><PlainText>true</PlainText></Password>
+                    </LocalAccount>
+                </LocalAccounts>
+            </UserAccounts>
+
+            <OOBE>
+                <HideEULAPage>true</HideEULAPage>
+                <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+                <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+                <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+                <ProtectYourPC>3</ProtectYourPC>
+                <SkipUserOOBE>true</SkipUserOOBE>
+                <SkipMachineOOBE>true</SkipMachineOOBE>
+                <NetworkLocation>Home</NetworkLocation>
+            </OOBE>
+
+            <FirstLogonCommands>
+                <SynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Description>Turn off network-selection popup</Description>
+                    <CommandLine>reg.exe add "HKLM\SYSTEM\CurrentControlSet\Control\Network\NewNetworkWindowOff" /f</CommandLine>
+                </SynchronousCommand>
+                <SynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Description>Run AXIOM first-logon.ps1 if a provisioning medium is attached</Description>
+                    <CommandLine>cmd.exe /c "for %d in (D E F G H I J K) do @if exist %d:\axiom\first-logon.ps1 powershell -NoProfile -ExecutionPolicy Bypass -File %d:\axiom\first-logon.ps1"</CommandLine>
+                </SynchronousCommand>
+            </FirstLogonCommands>
+
+            <TimeZone>UTC</TimeZone>
+        </component>
+    </settings>
+</unattend>
