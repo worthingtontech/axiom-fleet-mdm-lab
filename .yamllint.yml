@@ -28,3 +28,9 @@ rules:
     spaces: consistent
     indent-sequences: whatever
     check-multi-line-strings: false
+
+# cloud-init files require a verbatim `#cloud-config` first line (no space after
+# the `#`), which yamllint's comments rule flags -- and cloud-init validates them
+# itself. Exclude them from this lint.
+ignore: |
+  provisioning/linux/cloud-init/*.yaml
