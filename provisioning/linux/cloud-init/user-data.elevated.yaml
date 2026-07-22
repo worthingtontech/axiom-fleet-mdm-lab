@@ -26,6 +26,10 @@ write_files:
     content: ""
     permissions: '0644'
 runcmd:
+  # Enclave FIM canary for policy #8 (weights-cache integrity, MITRE T1565.001).
+  # Written byte-exactly BEFORE the fleetd install so the file's sha256 matches the
+  # hash pinned in the Fleet policy (printf's \\n must land as a single newline).
+  - [ sh, -c, "mkdir -p /opt/axiom/weights-cache && printf 'AXIOM-CANARY-v1\\n' > /opt/axiom/weights-cache/canary.bin && chown root:root /opt/axiom/weights-cache/canary.bin && chmod 0640 /opt/axiom/weights-cache/canary.bin" ]
   - [sh, -c, "mkdir -p /mnt/seed && (mount -L CIDATA /mnt/seed || mount /dev/sr0 /mnt/seed || mount /dev/sr1 /mnt/seed)"]
   - [sh, -c, "apt-get install -y /mnt/seed/fleet-osquery.deb"]
   - [sh, -c, "umount /mnt/seed || true"]

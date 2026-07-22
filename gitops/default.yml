@@ -114,4 +114,136 @@ org_settings:
       host_batch_size: 0
   yara_rules:
 policies:
+- name: Linux -- full-disk encryption (LUKS) present
+  platform: linux
+  critical: true
+  description: "Ensures the root/data volume uses LUKS full-disk encryption (osquery disk_encryption.encrypted = 1), protecting data at rest if a node is lost or seized. Reference CIS Controls v8 3.6."
+  resolution: "Reprovision the host with LUKS enabled at install time or migrate data onto an encrypted volume; verify with lsblk and cryptsetup status."
+  query: 'SELECT 1 FROM disk_encryption WHERE encrypted = 1;'
+- name: Linux -- host firewall (ufw) enabled
+  platform: linux
+  critical: true
+  description: "Confirms the Uncomplicated Firewall (ufw) is enabled so only explicitly permitted inbound traffic reaches the node. Reference Ubuntu 24.04 CIS 4.2.x."
+  resolution: "Enable the host firewall with 'ufw enable' and confirm ENABLED=yes in /etc/ufw/ufw.conf."
+  query: 'SELECT 1 FROM augeas WHERE path = ''/etc/ufw/ufw.conf'' AND label = ''ENABLED'' AND value = ''yes'';'
+- name: Linux -- SSH PermitRootLogin disabled
+  platform: linux
+  critical: true
+  description: "Verifies sshd is configured with PermitRootLogin no, preventing direct root SSH access and forcing accountable per-user logins. Reference Ubuntu 24.04 CIS 5.1.20."
+  resolution: "Set PermitRootLogin no in /etc/ssh/sshd_config and reload the service (systemctl reload ssh)."
+  query: 'SELECT 1 FROM augeas WHERE path = ''/etc/ssh/sshd_config'' AND label = ''PermitRootLogin'' AND lower(value) = ''no'';'
+- name: Linux -- OS at or above 24.04 baseline
+  platform: linux
+  critical: false
+  description: "Ensures the node runs Ubuntu 24.04 or newer, the supported security baseline. Reference Ubuntu CIS 1.2.2.1."
+  resolution: "Upgrade the operating system to Ubuntu 24.04 LTS or later (do-release-upgrade) and re-enroll if required."
+  query: 'SELECT 1 FROM os_version WHERE name = ''Ubuntu'' AND (major > 24 OR (major = 24 AND minor >= 4));'
+- name: Linux -- fleetd agent package present
+  platform: linux
+  critical: false
+  description: "Confirms the fleet-osquery (fleetd) agent package is installed so the host reports telemetry and policy results. Reference CIS Controls v8 8 and 13."
+  resolution: "Install the fleetd .deb built for AXIOM (apt-get install ./fleet-osquery.deb) and confirm the host enrolls."
+  query: 'SELECT 1 FROM deb_packages WHERE name = ''fleet-osquery'';'
+- name: Linux -- automatic security updates configured
+  platform: linux
+  critical: false
+  description: "Verifies unattended-upgrades is installed so security patches apply automatically. Reference Ubuntu CIS 1.2.2.1."
+  resolution: "Install and enable automatic updates: apt-get install unattended-upgrades then dpkg-reconfigure unattended-upgrades."
+  query: 'SELECT 1 FROM deb_packages WHERE name = ''unattended-upgrades'' AND status LIKE ''%installed%'';'
+- name: Linux -- no unauthorized SUID binaries
+  platform: linux
+  critical: false
+  description: "Detects setuid/setgid binaries outside the approved allowlist, a common privilege-escalation and persistence vector. Reference Ubuntu CIS 7.1.13."
+  resolution: "Investigate any flagged SUID binary; remove the setuid bit (chmod u-s) or remove the binary if it is not required."
+  query: 'SELECT 1 WHERE NOT EXISTS ( SELECT 1 FROM suid_bin WHERE path NOT IN (''/usr/bin/sudo'',''/usr/bin/passwd'',''/usr/bin/chsh'',''/usr/bin/chfn'',''/usr/bin/newgrp'',''/usr/bin/gpasswd'',''/usr/bin/mount'',''/usr/bin/umount'',''/usr/bin/su'',''/usr/bin/pkexec'',''/usr/lib/openssh/ssh-keysign'') );'
+- name: AXIOM enclave -- weights-cache FIM canary unchanged
+  platform: linux
+  critical: true
+  description: "Enclave-only. Confirms the weights-cache integrity canary at /opt/axiom/weights-cache/canary.bin matches its pinned sha256, detecting tampering of model artifacts. Standard hosts auto-pass via the elevated-tier sentinel. Reference MITRE ATT&CK T1565.001."
+  resolution: "Investigate the enclave host for unauthorized modification of the weights-cache; restore the canary from a trusted source and rotate credentials if tampering is confirmed."
+  query: 'SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM file WHERE path = ''/etc/axiom/tier.d/elevated'') OR EXISTS (SELECT 1 FROM hash WHERE path = ''/opt/axiom/weights-cache/canary.bin'' AND sha256 = ''7954095f02aef71ac152a4117f51cc529cd47a1c741e7cfac3d703af8eab0b92'');'
+- name: AXIOM enclave -- no removable/USB media mounted
+  platform: linux
+  critical: true
+  description: "Enclave-only. Ensures no removable or USB media is mounted under /media, /run/media, or /mnt, limiting data-exfiltration and malicious-media vectors. Standard hosts auto-pass. Reference MITRE ATT&CK T1091 and T1052.001."
+  resolution: "Unmount and physically remove any removable media from the enclave node and investigate why it was attached."
+  query: 'SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM file WHERE path = ''/etc/axiom/tier.d/elevated'') OR NOT EXISTS (SELECT 1 FROM mounts WHERE path LIKE ''/media/%'' OR path LIKE ''/run/media/%'' OR path LIKE ''/mnt/%'');'
+- name: AXIOM enclave -- AIDE host FIM installed (elevated bar)
+  platform: linux
+  critical: true
+  description: "Enclave-only elevated bar. Confirms the AIDE host-based file-integrity monitor is installed on elevated-tier nodes. Standard hosts auto-pass. Reference Ubuntu CIS 6.1.x."
+  resolution: "Install AIDE (apt-get install aide), initialize its database (aideinit), and schedule periodic integrity checks."
+  query: 'SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM file WHERE path = ''/etc/axiom/tier.d/elevated'') OR EXISTS (SELECT 1 FROM deb_packages WHERE name = ''aide'' AND status LIKE ''%installed%'');'
+- name: macOS -- FileVault enabled
+  platform: darwin
+  critical: true
+  description: "Ensures macOS FileVault full-disk encryption is on, protecting data at rest. Reference macOS CIS 2.6.6."
+  resolution: "Enable FileVault in System Settings Privacy and Security or via fdesetup enable, and escrow the recovery key."
+  query: 'SELECT 1 FROM disk_encryption WHERE filevault_status = ''on'';'
+- name: macOS -- Application Firewall on
+  platform: darwin
+  critical: true
+  description: "Confirms the macOS Application Firewall is enabled (global_state at or above 1). Reference macOS CIS 2.2.1."
+  resolution: "Turn on the firewall in System Settings Network Firewall or via socketfilterfw."
+  query: 'SELECT 1 FROM alf WHERE global_state >= 1;'
+- name: macOS -- Gatekeeper enabled
+  platform: darwin
+  critical: false
+  description: "Verifies Gatekeeper assessment and Developer ID enforcement are enabled so only signed, notarized software runs. Reference macOS CIS 2.6.5."
+  resolution: "Enable Gatekeeper with spctl --master-enable and confirm assessments are on."
+  query: 'SELECT 1 FROM gatekeeper WHERE assessments_enabled = 1 AND dev_id_enabled = 1;'
+- name: macOS -- SIP enabled
+  platform: darwin
+  critical: true
+  description: "Ensures System Integrity Protection is enabled, protecting system files and processes from modification. Reference macOS CIS 2.6.x."
+  resolution: "Boot into Recovery and run csrutil enable, then reboot."
+  query: 'SELECT 1 FROM sip_config WHERE config_flag = ''sip'' AND enabled = 1;'
+- name: macOS -- screen lock <=5 min (password on wake)
+  platform: darwin
+  critical: false
+  description: "Confirms a managed screensaver idle timeout of 5 minutes or less (and password on wake) with no conflicting policy allowing longer. Reference macOS CIS 2.10.x."
+  resolution: "Deploy a configuration profile setting com.apple.screensaver idleTime to 300 seconds or less and require a password on wake."
+  query: 'SELECT 1 WHERE EXISTS (SELECT 1 FROM managed_policies WHERE domain=''com.apple.screensaver'' AND name=''idleTime'' AND CAST(value AS INT) <= 300 AND CAST(value AS INT) > 0 AND username='''') AND NOT EXISTS (SELECT 1 FROM managed_policies WHERE domain=''com.apple.screensaver'' AND name=''idleTime'' AND CAST(value AS INT) > 300);'
+- name: macOS -- minimum OS version
+  platform: darwin
+  critical: false
+  description: "Ensures macOS is at or above the supported minimum (14.6+), keeping patch posture current. Reference macOS patch posture."
+  resolution: "Install the latest macOS updates via Software Update to reach the minimum supported version."
+  query: 'SELECT 1 FROM os_version WHERE (major > 14) OR (major = 14 AND minor >= 6);'
+- name: Windows -- BitLocker on OS drive
+  platform: windows
+  critical: true
+  description: "Confirms BitLocker protection is on for the C: operating-system drive. Reference Windows 11 CIS 18.10.9."
+  resolution: "Enable BitLocker on the OS drive (manage-bde -on C:) and back up the recovery key."
+  query: 'SELECT 1 FROM bitlocker_info WHERE drive_letter = ''C:'' AND protection_status = 1;'
+- name: Windows -- Firewall on (all profiles)
+  platform: windows
+  critical: true
+  description: "Verifies Windows Defender Firewall is enabled for the Domain, Private, and Public profiles via policy. Reference Windows 11 CIS 9.x."
+  resolution: "Enable the firewall for all three profiles via Group Policy or Set-NetFirewallProfile -Enabled True."
+  query: 'SELECT 1 WHERE (SELECT data FROM registry WHERE path=''HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile\EnableFirewall'')=''1'' AND (SELECT data FROM registry WHERE path=''HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PrivateProfile\EnableFirewall'')=''1'' AND (SELECT data FROM registry WHERE path=''HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile\EnableFirewall'')=''1'';'
+- name: Windows -- Defender real-time protection on
+  platform: windows
+  critical: true
+  description: "Confirms Microsoft Defender real-time protection is not disabled by policy. Reference Windows 11 CIS 18.10.42.x."
+  resolution: "Ensure DisableRealtimeMonitoring is not set to 1 and re-enable real-time protection in Windows Security."
+  query: 'SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM registry WHERE path=''HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring'' AND data=''1'');'
+- name: Windows -- machine inactivity lock <=5 min
+  platform: windows
+  critical: false
+  description: "Ensures the machine inactivity limit locks the session after 300 seconds or less. Reference Windows 11 CIS 2.3.7.4."
+  resolution: "Set the interactive logon machine inactivity limit to 300 seconds or less via Group Policy."
+  query: 'SELECT 1 FROM registry WHERE path=''HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\InactivityTimeoutSecs'' AND CAST(data AS INTEGER) <= 300 AND CAST(data AS INTEGER) != 0;'
+- name: Windows -- UAC enabled
+  platform: windows
+  critical: false
+  description: "Confirms User Account Control (EnableLUA) is enabled. Reference Windows 11 CIS 2.3.17.6."
+  resolution: "Enable UAC by setting EnableLUA to 1 and reboot."
+  query: 'SELECT 1 FROM registry WHERE path=''HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA'' AND data=''1'';'
+- name: Windows -- minimum OS build
+  platform: windows
+  critical: false
+  description: "Ensures the Windows build is at or above 22631 (Windows 11 23H2 baseline) for current patch posture. Reference Windows 11 patch posture."
+  resolution: "Apply the latest cumulative and feature updates to reach the minimum supported build."
+  query: 'SELECT 1 FROM os_version WHERE CAST(build AS INTEGER) >= 22631;'
 reports:
