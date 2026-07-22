@@ -3,8 +3,9 @@
 # NON-secret env-var *references* this repo commits. The real values live in
 # GitHub Actions secrets and the host .env -- never in Git.
 #
-# NB: on an ORG-owned repo, gitleaks-action requires a (free) GITLEAKS_LICENSE
-# secret from https://gitleaks.io -- wired in .github/workflows/gitleaks.yml.
+# NB: gitleaks-action requires a (free) GITLEAKS_LICENSE only on an ORG-owned repo.
+# This repo is a PERSONAL account -> none needed. Add one (from https://gitleaks.io,
+# wired in .github/workflows/gitleaks.yml) if/when it moves under the LLC org.
 
 title = "AXIOM Fleet GitOps gitleaks config"
 

@@ -21,6 +21,9 @@ jobs:
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ORG-owned repos REQUIRE a (free) license key from gitleaks.io.
+          # gitleaks-action needs a (free) license ONLY for ORG-owned repos. This repo
+          # is a PERSONAL account, so no license is required -- the secret is absent and
+          # this line is a harmless no-op. When the repo moves under the LLC org, add a
+          # GITLEAKS_LICENSE repo secret from https://gitleaks.io.
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
           GITLEAKS_CONFIG: .gitleaks.toml
