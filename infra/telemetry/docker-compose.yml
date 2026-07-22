@@ -1,0 +1,149 @@
+# =============================================================================
+# Project AXIOM -- telemetry layer (Phase 5). Composable ADD-ON to axiom-core:
+# it JOINS the existing axiom-core bridge (external network) and mounts the
+# existing fleet-logs volume (external), so the Phase 1-4 stack is never touched.
+#
+#   Fleet osquery logs (fleet-logs vol) --> [ vector ] --> [ loki ]  ---\
+#   Fleet /metrics (basic auth)          --> [ prometheus ] <-----------  [ grafana ]
+#   Fleet REST API                       --> [ fleet-exporter ] --/       (dashboards
+#                                                                           as JSON)
+#
+# Bring up (core stack must already be running):
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up -d      # core
+#   docker compose -f infra/telemetry/docker-compose.yml --env-file ../.env up -d
+# Grafana: http://127.0.0.1:3000  (admin / $GRAFANA_ADMIN_PASSWORD from infra/.env)
+#
+# Image pins (re-verify on phase bumps):
+#   grafana/loki:3.3.2 · timberio/vector:0.44.0-alpine · prom/prometheus:v2.55.1
+#   grafana/grafana:11.4.0 · alpine:3.24.1
+# =============================================================================
+name: axiom-telemetry
+
+services:
+  # ---------------------------------------------------------------------------
+  # Loki -- log store. Vector pushes Fleet osquery logs here; Grafana queries them.
+  # ---------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.3.2
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"   # loopback debug only
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Vector -- tails the Fleet osquery result/status logs (fleet-logs vol, RO)
+  # and ships parsed JSON to Loki. See vector/vector.yaml.
+  # ---------------------------------------------------------------------------
+  vector:
+    image: timberio/vector:0.44.0-alpine
+    volumes:
+      - ./vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - fleet-logs:/logs:ro
+      - vector-data:/var/lib/vector
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # prom-init -- one-shot: writes the Fleet /metrics basic-auth password from
+  # infra/.env into the prom-secrets volume, so the password is NEVER in Git
+  # (prometheus.yml references it via password_file). Idempotent.
+  # ---------------------------------------------------------------------------
+  prom-init:
+    image: alpine:3.24.1
+    env_file:
+      - ../.env
+    command:
+      - sh
+      - -c
+      - 'printf "%s" "$${FLEET_PROMETHEUS_BASIC_AUTH_PASSWORD}" > /secrets/fleet_metrics_pw && chmod 0644 /secrets/fleet_metrics_pw && echo wrote /secrets/fleet_metrics_pw'
+    volumes:
+      - prom-secrets:/secrets
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Prometheus -- scrapes Fleet server-health /metrics (basic auth) + the
+  # fleet-exporter business metrics. See prometheus/prometheus.yml.
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-secrets:/etc/prometheus/secrets:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      prom-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:9090:9090"   # loopback debug only
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # fleet-exporter -- polls the Fleet REST API (over the bridge, plain HTTP to
+  # fleet:1337) and exposes business gauges Fleet's own /metrics does NOT:
+  # hosts online/offline, failing-host count per policy (with critical + tier),
+  # enclave canary status. Logs in with a dedicated observer user from .env.
+  # ---------------------------------------------------------------------------
+  fleet-exporter:
+    build: ./exporter
+    image: axiom/fleet-exporter:1.0.0
+    environment:
+      FLEET_URL: "http://fleet:1337"
+      # api-only observer TOKEN (preferred -- api-only users cannot use /login).
+      # email/password are an optional fallback for a normal (non-api-only) user.
+      FLEET_EXPORTER_TOKEN: "${FLEET_EXPORTER_TOKEN:-}"
+      FLEET_EXPORTER_EMAIL: "${FLEET_EXPORTER_EMAIL:-}"
+      FLEET_EXPORTER_PASSWORD: "${FLEET_EXPORTER_PASSWORD:-}"
+      EXPORTER_PORT: "9100"
+      POLL_SECONDS: "30"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Grafana -- dashboards provisioned FROM GIT (datasources + dashboard JSON),
+  # never clicked together. Loopback-published; admin password from infra/.env.
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.4.0
+    env_file:
+      - ../.env
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in infra/.env}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+networks:
+  # Join the running core stack's bridge so we can reach fleet:1337 by DNS.
+  default:
+    name: axiom-core_default
+    external: true
+
+volumes:
+  # The Fleet osquery-log volume created by the core stack (project axiom-core).
+  fleet-logs:
+    name: axiom-core_fleet-logs
+    external: true
+  loki-data:
+  vector-data:
+  prometheus-data:
+  prom-secrets:
+  grafana-data:

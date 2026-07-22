@@ -1,0 +1,77 @@
+{
+  "uid": "axiom-compliance",
+  "title": "AXIOM · Compliance",
+  "tags": ["axiom", "compliance", "policy"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Failing policy checks (host-instances)",
+      "description": "Sum of failing (policy x host) pairs. NB: Fleet Free does not persist the per-policy 'critical' flag (it is Premium), so axiom_critical_policy_failing_hosts stays 0 -- this panel counts ALL failing checks instead.",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "sum(axiom_policy_failing_hosts)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Hosts online",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "axiom_hosts_online", "instant": true } ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Hosts offline",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "axiom_hosts_offline", "instant": true } ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Failing hosts by policy",
+      "gridPos": { "h": 12, "w": 14, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "axiom_policy_failing_hosts > 0", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "service": true }, "renameByName": { "policy": "Policy", "critical": "Critical", "Value": "Failing hosts" } } },
+        { "id": "sortBy", "options": { "fields": "", "sort": [ { "field": "Failing hosts", "desc": true } ] } }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } }, "overrides": [ { "matcher": { "id": "byName", "options": "Critical" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "mappings", "value": [ { "type": "value", "options": { "true": { "color": "red", "text": "critical" }, "false": { "color": "yellow", "text": "standard" } } } ] } ] } ] },
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Failing checks & offline hosts over time",
+      "gridPos": { "h": 12, "w": 10, "x": 14, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "sum(axiom_policy_failing_hosts)", "legendFormat": "failing checks (hosts)" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "axiom_hosts_offline", "legendFormat": "hosts offline" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    }
+  ]
+}

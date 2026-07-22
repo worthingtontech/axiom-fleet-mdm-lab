@@ -1,0 +1,21 @@
+# Grafana datasources -- provisioned from Git (never added via the UI).
+# Fixed uids so the dashboard JSON can reference them stably.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: axiom-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 30s
+
+  - name: Loki
+    type: loki
+    uid: axiom-loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 1000

@@ -10,7 +10,7 @@
 
 | | |
 |---|---|
-| **Phase** | **4 — Policy-as-code ✅** (22 policies live; break→red→fix→green PROVEN on enclave-01) · Phase 2 client VMs + Phase 3 self-hosted runner await Aaron's inputs |
+| **Phase** | **5 — Telemetry ✅** (Loki + Prometheus + Grafana dashboards-as-code; kill-agent→fleet-health-drop PROVEN) · Phase 2 client VMs + Phase 3 self-hosted runner await Aaron's inputs |
 | **Date** | 2026-07-22 |
 | **Running now** | `axiom-core` stack at **https://fleet.axiom.lab** + **enclave-01** (Ubuntu 24.04 elevated VBox VM, Fleet host **id=4**) enrolled ONLINE — **9/10 Linux policies green** (only #1 LUKS fails, documented). Admin creds `~/axiom-fleet-admin.txt`, fleetctl `~/.axiom-tools/…/fleetctl.exe` (rootca-set), VM artifacts in `C:\vms`. |
 | **Next (Phase 2)** | gpu-node-2 + ml-workstation + enclave-01 (tier markers + dynamic label); Windows osquery+MDM (WSTEP CA); Android AVD (or physical fallback) |
@@ -26,7 +26,7 @@
 - [ ] **Phase 2** — Enroll the fleet (fleetd packages, Linux VMs, Windows osquery+MDM, Android)
 - [ ] **Phase 3** — GitOps & CI/CD (fleet-gitops layout, GH Actions gates, self-hosted runner, drift job)
 - [x] **Phase 4** — Policy-as-code ✅ _(22 policies + critical flags + CIS/MITRE matrix + per-policy test plans; break→red→fix→green proven live on enclave-01; osquery-table detection choices in ADR-0008)_
-- [ ] **Phase 5** — Telemetry (Vector→Loki, Prometheus, Grafana dashboards-as-JSON)
+- [x] **Phase 5** — Telemetry ✅ _(Vector→Loki + Prometheus + fleet-exporter + Grafana 3 dashboards-as-JSON; kill-agent→fleet-health-drop acceptance proven)_
 - [ ] **Phase 6** — Zero-touch provisioning (Linux cloud-init, Windows unattend/PPKG, ADE runbook)
 - [ ] **Phase 7** — Identity-driven access (Keycloak SAML SSO + device-trust demo app)
 - [ ] **Phase 8** — Security automation & drills (SOAR-lite receiver + 3 IR drills)
@@ -295,4 +295,44 @@ destination is the Phase 8 SOAR-lite receiver; it activates there.
 _Prove it live:_ `fleetctl run-script --host enclave-01 --script-path <break>.sh` then Refetch → policy
 flips red; run the fix script → green. Commands per policy in `docs/test-plans.md`.
 
-_(Phase 5+ evidence appended here as each phase passes its checks.)_
+### Phase 5 — Telemetry ✅ (2026-07-22)
+
+Observability layer in [`infra/telemetry/`](infra/telemetry/README.md) as a **composable add-on**:
+it joins the `axiom-core` bridge and reads the `fleet-logs` volume, so the Phase 1–4 stack is never
+touched. One command stands it up:
+`docker compose -f infra/telemetry/docker-compose.yml --env-file infra/.env up -d --build`.
+
+**Pipeline (all from Git):**
+- **Sources:** 3 scheduled queries in GitOps `reports:` (Fleet renamed the key `queries`→`reports`) —
+  heartbeat 60s, enclave-canary-hash 300s, listening-ports 300s → `/logs/osqueryd.results.log`.
+  Fleet `/metrics` enabled via `FLEET_PROMETHEUS_BASIC_AUTH_*` (off by default — the path otherwise
+  serves the SPA; verified it 401s without creds once enabled).
+- **Vector** tails the osquery logs → **Loki** (parsed JSON; labels host/query/log_type).
+- **Prometheus** scrapes Fleet `/metrics` (server health — Go/RSS/HTTP latency; basic-auth password
+  written into a volume by a `prom-init` sidecar and referenced via `password_file`, never in Git) +
+  the **fleet-exporter**.
+- **fleet-exporter** (stdlib-only Python; authenticates as a dedicated **api-only observer** via
+  token — api-only users can't use `/login`) polls the Fleet REST API for the business metrics Fleet's
+  own `/metrics` lacks: `axiom_hosts_online/_offline`, `axiom_policy_failing_hosts{policy}`,
+  `axiom_enclave_canary_failing_hosts`.
+- **Grafana** provisioned from Git (datasources + 3 dashboards as JSON): **Fleet Health, Compliance,
+  Enclave FIM**.
+
+**Verified live:** Prometheus targets `fleet` + `fleet-exporter` + `prometheus` all **up**; Loki
+ingesting `job=fleet_osquery`; both Grafana datasources health-**OK**; 3 dashboards auto-provisioned
+under the AXIOM folder; exporter `axiom_exporter_up 1`, `axiom_hosts_online 1`, canary `0` (intact).
+
+**ACCEPTANCE — kill an agent, fleet-health drops:**
+```
+BASELINE   Loki heartbeats(2m) = 2          (enclave-01 beaconing)
+KILL       systemctl stop orbit on enclave-01  (delivered via Fleet run-script)
+AFTER      Loki heartbeats(2m) = 0  +  exporter axiom_hosts_online = 0   [within ~2 min]
+RESTORE    VM reboot -> orbit.service auto-starts -> heartbeat resumes -> hosts_online = 1
+```
+
+**Free-tier note:** Fleet does not persist the per-policy `critical` flag (Premium), so the exporter's
+`axiom_critical_policy_failing_hosts` stays 0 — the Compliance dashboard keys on **total failing
+checks** instead. Grafana is on **http://127.0.0.1:3000** (loopback only; Caddy `:443` remains the sole
+LAN-facing port). Secrets (Grafana admin, exporter token, /metrics password) live only in `infra/.env`.
+
+_(Phase 6+ evidence appended here as each phase passes its checks.)_

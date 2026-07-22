@@ -247,3 +247,31 @@ policies:
   resolution: "Apply the latest cumulative and feature updates to reach the minimum supported build."
   query: 'SELECT 1 FROM os_version WHERE CAST(build AS INTEGER) >= 22631;'
 reports:
+# Scheduled queries (Fleet renamed the GitOps key 'queries' -> 'reports') --
+# Phase 5 telemetry sources. Results log via the filesystem plugin
+# (/logs/osqueryd.results.log), tailed by Vector -> Loki -> Grafana.
+# automations_enabled=true is what makes Fleet actually LOG the results.
+- name: axiom-heartbeat
+  description: "Liveness beacon: every online host logs system_info each interval. The Grafana fleet-health dashboard derives agents-online + check-in lag from these Loki lines; killing an agent stops the beacon."
+  query: "SELECT hostname, uuid, cpu_brand FROM system_info;"
+  interval: 60
+  platform: linux,darwin,windows
+  observer_can_run: false
+  automations_enabled: true
+  logging: snapshot
+- name: axiom-enclave-canary-hash
+  description: "Enclave weights-cache integrity beacon for the Grafana FIM panel: logs the live sha256 of /opt/axiom/weights-cache/canary.bin (only elevated hosts have the file)."
+  query: "SELECT path, sha256 FROM hash WHERE path = '/opt/axiom/weights-cache/canary.bin';"
+  interval: 300
+  platform: linux
+  observer_can_run: false
+  automations_enabled: true
+  logging: snapshot
+- name: axiom-listening-ports
+  description: "Inbound TCP attack-surface telemetry to Loki (complements policy #2); snapshots listening TCP ports each interval."
+  query: "SELECT address, port FROM listening_ports WHERE protocol = 6;"
+  interval: 300
+  platform: linux
+  observer_can_run: false
+  automations_enabled: true
+  logging: snapshot

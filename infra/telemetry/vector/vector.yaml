@@ -1,0 +1,61 @@
+# Vector -- tails Fleet's filesystem osquery logs and ships them to Loki.
+# The fleet-logs named volume (axiom-core_fleet-logs) is mounted read-only at
+# /logs. Each result line is Fleet's osquery snapshot JSON, e.g.:
+#   {"action":"snapshot","name":"pack/Global/axiom-heartbeat",
+#    "hostIdentifier":"<uuid>","decorations":{"hostname":"enclave-01"},
+#    "snapshot":[{...columns...}],"unixTime":...}
+data_dir: /var/lib/vector
+
+sources:
+  fleet_results:
+    type: file
+    include: ["/logs/osqueryd.results.log"]
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+  fleet_status:
+    type: file
+    include: ["/logs/osqueryd.status.log"]
+    read_from: beginning
+
+transforms:
+  # Parse the osquery JSON and lift stable, low-cardinality Loki labels
+  # (host, query) out of it. Unparseable lines are still forwarded, labelled.
+  parse:
+    type: remap
+    inputs: ["fleet_results", "fleet_status"]
+    source: |
+      raw = to_string(.message) ?? ""
+      parsed, err = parse_json(raw)
+      if err == null {
+        . = object(parsed) ?? {}
+        h = .decorations.hostname
+        if h == null { h = .hostIdentifier }
+        .host = to_string(h) ?? "unknown"
+        nm = to_string(.name) ?? ""
+        q = replace(nm, r'^pack/[^/]+/', "")
+        if q == "" { q = "status" }
+        .query = q
+        .log_type = "result"
+      } else {
+        .host = "unknown"
+        .query = "unparsed"
+        .log_type = "unparsed"
+        .raw = raw
+      }
+
+sinks:
+  loki:
+    type: loki
+    inputs: ["parse"]
+    endpoint: "http://loki:3100"
+    encoding:
+      codec: json
+    labels:
+      job: "fleet_osquery"
+      log_type: "{{ log_type }}"
+      host: "{{ host }}"
+      query: "{{ query }}"
+    out_of_order_action: accept
+    healthcheck:
+      enabled: true

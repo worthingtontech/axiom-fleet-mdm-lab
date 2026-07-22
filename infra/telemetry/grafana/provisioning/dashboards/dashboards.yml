@@ -1,0 +1,14 @@
+# Grafana dashboard provider -- loads every *.json under the dashboards dir
+# (bind-mounted from Git). Dashboards are code; UI edits are not the source of truth.
+apiVersion: 1
+providers:
+  - name: axiom
+    orgId: 1
+    folder: AXIOM
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,63 @@
+{
+  "uid": "axiom-enclave-fim",
+  "title": "AXIOM · Enclave FIM",
+  "tags": ["axiom", "enclave", "fim"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Weights-cache canary integrity",
+      "description": "Hosts where the enclave weights-cache FIM canary policy (#8) is failing. 0 = every enclave canary matches its pinned sha256; >0 = tampering detected.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "axiom_enclave_canary_failing_hosts", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0,
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "INTACT", "color": "green" } } },
+            { "type": "range", "options": { "from": 1, "to": 1000000, "result": { "text": "TAMPERED", "color": "red" } } }
+          ],
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Canary failing hosts over time",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "axiom-prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "axiom-prometheus" }, "expr": "axiom_enclave_canary_failing_hosts", "legendFormat": "canary failing hosts" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "spanNulls": true, "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Canary hash telemetry (Loki)",
+      "description": "Live sha256 of /opt/axiom/weights-cache/canary.bin from the axiom-enclave-canary-hash scheduled query. Pinned value: 7954095f02aef71ac152a4117f51cc529cd47a1c741e7cfac3d703af8eab0b92",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "loki", "uid": "axiom-loki" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "axiom-loki" }, "expr": "{job=\"fleet_osquery\", query=\"axiom-enclave-canary-hash\"}", "queryType": "range" }
+      ],
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none" }
+    }
+  ]
+}
