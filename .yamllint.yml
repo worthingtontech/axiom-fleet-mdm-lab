@@ -21,3 +21,10 @@ rules:
   # A single space between content and an inline `#` comment is enough.
   comments:
     min-spaces-from-content: 1
+  # gitops/default.yml is machine-generated (fleetctl generate-gitops) and must
+  # stay generator-shaped so the drift job's diff stays clean -- so accept the
+  # generator's block-sequence indentation rather than reformat it.
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever
+    check-multi-line-strings: false
