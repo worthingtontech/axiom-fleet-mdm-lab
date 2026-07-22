@@ -1,0 +1,240 @@
+name: Fleet GitOps PR CI
+
+# Untrusted PRs run ENTIRELY on GitHub-hosted runners against an EPHEMERAL Fleet
+# (MySQL + Redis service containers + a backgrounded `fleet serve`). Nothing here
+# touches the LAN, the live Fleet server, or the self-hosted runner -- so a fork
+# PR stays fully sandboxed after the repo goes public (ADR-0007).
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Lint the YAML tree + the workflows themselves.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (yamllint + actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: yamllint
+        run: |
+          pipx install yamllint
+          yamllint -c .yamllint.yml .
+
+      - name: actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+
+  # ---------------------------------------------------------------------------
+  # 2. Validate embedded config artifacts: Apple .mobileconfig, JSON, Windows XML.
+  # ---------------------------------------------------------------------------
+  profiles:
+    name: Validate profiles (plist / json / xml)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Apple .mobileconfig (plist load)
+        run: |
+          python3 - <<'PY'
+          import glob, plistlib, sys
+          files = glob.glob("gitops/lib/**/*.mobileconfig", recursive=True)
+          bad = 0
+          for f in files:
+              try:
+                  with open(f, "rb") as fh:
+                      plistlib.load(fh)
+                  print(f"ok   {f}")
+              except Exception as e:  # noqa: BLE001 -- report any parse failure
+                  print(f"FAIL {f}: {e}")
+                  bad += 1
+          print(f"checked {len(files)} mobileconfig file(s); {bad} bad")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Validate JSON (python json.tool)
+        run: |
+          # Every *tracked* JSON file must parse. `git ls-files` scopes to commits.
+          rc=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if python3 -m json.tool "$f" > /dev/null; then
+              echo "ok   $f"
+            else
+              echo "FAIL $f"
+              rc=1
+            fi
+          done < <(git ls-files '*.json')
+          exit "$rc"
+
+      - name: Validate Windows CSP XML (xmllint, wrapped root)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-utils
+          # Windows MDM profiles are XML *fragments* (several top-level <Replace>
+          # elements), so wrap each in a synthetic <fleet-root> before xmllint.
+          rc=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if { echo '<fleet-root>'; cat "$f"; echo '</fleet-root>'; } | xmllint --noout -; then
+              echo "ok   $f"
+            else
+              echo "FAIL $f"
+              rc=1
+            fi
+          done < <(find gitops/lib -type f -name '*.xml')
+          exit "$rc"
+
+  # ---------------------------------------------------------------------------
+  # 3. Compile-check every osquery query in default.yml against a real osqueryi.
+  #    osqueryi EXITS 0 even on bad SQL (osquery#5853), so the gate greps output.
+  # ---------------------------------------------------------------------------
+  osquery-sql:
+    name: osquery SQL gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install osqueryi + yq
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl gnupg
+          # osquery from the official pkg.osquery.io apt repo.
+          curl -fsSL https://pkg.osquery.io/deb/pubkey.gpg \
+            | sudo tee /etc/apt/trusted.gpg.d/osquery.asc > /dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/osquery.asc] https://pkg.osquery.io/deb deb main" \
+            | sudo tee /etc/apt/sources.list.d/osquery.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y osquery
+          # mikefarah yq (YAML -> JSON); jq ships on ubuntu-latest already.
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Compile-check osquery SQL
+        run: |
+          # Pull every query string out of default.yml (policies / reports /
+          # queries / labels). `?` + select() stay safe when a section is null.
+          mapfile -t QUERIES < <(
+            yq -o=json '.' gitops/default.yml \
+              | jq -r '[.policies[]?.query, .reports[]?.query, .queries[]?.query, .labels[]?.query]
+                       | .[]? | select(. != null and . != "")'
+          )
+          echo "Found ${#QUERIES[@]} query/queries to check."
+          rc=0
+          for sql in "${QUERIES[@]}"; do
+            echo "--- checking: ${sql}"
+            # osqueryi returns 0 even on a bad query, so capture stdout+stderr
+            # and grep for the error signatures (osquery#5853).
+            out="$(osqueryi --disable_extensions --json "${sql}" 2>&1 || true)"
+            if echo "${out}" | grep -qiE 'error|no such (table|column|function)|syntax error|near '; then
+              echo "FAIL: ${sql}"
+              echo "${out}"
+              rc=1
+            fi
+          done
+          exit "$rc"
+
+  # ---------------------------------------------------------------------------
+  # 4. Full `fleetctl gitops --dry-run` against a throwaway Fleet built from
+  #    scratch ON the runner. The real integration gate; never leaves the VM.
+  # ---------------------------------------------------------------------------
+  dry-run-ephemeral:
+    name: gitops dry-run (ephemeral Fleet)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ROOT_PASSWORD: insecure
+          MYSQL_DATABASE: fleet
+          MYSQL_USER: fleet
+          MYSQL_PASSWORD: insecure
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h127.0.0.1 -uroot -pinsecure"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:6.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      FLEET_MYSQL_ADDRESS: 127.0.0.1:3306
+      FLEET_MYSQL_USERNAME: fleet
+      FLEET_MYSQL_PASSWORD: insecure
+      FLEET_MYSQL_DATABASE: fleet
+      FLEET_REDIS_ADDRESS: 127.0.0.1:6379
+      FLEET_SERVER_TLS: "false"
+      FLEET_SERVER_ADDRESS: 0.0.0.0:8080
+      # MDM asset-encryption key -- REQUIRED for the Windows MDM validation that
+      # controls.windows_enabled_and_configured triggers on apply. CI-only value.
+      FLEET_SERVER_PRIVATE_KEY: ci-only-32-char-key-0123456789abcd
+      FLEET_IMAGE: fleetdm/fleet:v4.89.1
+      # Expanded into gitops/default.yml (org_settings.secrets). CI placeholder.
+      FLEET_GLOBAL_ENROLL_SECRET: ci-placeholder-enroll-secret
+      FLEET_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the Fleet database (run migrations)
+        run: |
+          docker run --rm --network host \
+            -e FLEET_MYSQL_ADDRESS -e FLEET_MYSQL_USERNAME -e FLEET_MYSQL_PASSWORD \
+            -e FLEET_MYSQL_DATABASE -e FLEET_REDIS_ADDRESS \
+            "${FLEET_IMAGE}" fleet prepare db --no-prompt
+
+      - name: Start Fleet (backgrounded container)
+        run: |
+          docker run -d --name fleet --network host \
+            -e FLEET_MYSQL_ADDRESS -e FLEET_MYSQL_USERNAME -e FLEET_MYSQL_PASSWORD \
+            -e FLEET_MYSQL_DATABASE -e FLEET_REDIS_ADDRESS \
+            -e FLEET_SERVER_TLS -e FLEET_SERVER_ADDRESS -e FLEET_SERVER_PRIVATE_KEY \
+            "${FLEET_IMAGE}" fleet serve
+
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "Fleet healthy after ${i} attempt(s)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Fleet did not become healthy in time; dumping logs:"
+          docker logs fleet || true
+          exit 1
+
+      - name: Install fleetctl + initial setup
+        run: |
+          npm install -g fleetctl@4.89.1
+          fleetctl config set --address http://localhost:8080
+          fleetctl setup \
+            --email admin@axiom.lab \
+            --name Admin \
+            --password 'Axiom-CI-Passw0rd!' \
+            --org-name AXIOM
+
+      - name: fleetctl gitops --dry-run
+        run: |
+          # On FREE, gitops/fleets/unassigned.yml is skipped ("teams are Premium")
+          # but is still passed for forward-compat; only default.yml applies.
+          fleetctl gitops -f gitops/default.yml -f gitops/fleets/unassigned.yml --dry-run

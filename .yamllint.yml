@@ -1,0 +1,23 @@
+# yamllint configuration for the AXIOM Fleet GitOps repo.
+# Consumed by PR CI (.github/workflows/pr-ci.yml -> "lint" job): `yamllint -c .yamllint.yml .`
+#
+# Deliberately lenient where a strict default would fight legitimate GitOps /
+# GitHub-Actions YAML:
+#   - osquery SQL and cert-SAN lists run long        -> line-length is a warning
+#   - GitHub Actions spells the trigger key `on:`     -> truthy check-keys disabled
+#   - Fleet GitOps files have no `---` doc marker     -> document-start disabled
+extends: default
+
+rules:
+  # Fleet policy SQL and TLS SAN lists get long; warn, don't fail the build.
+  line-length:
+    max: 200
+    level: warning
+  # Fleet GitOps files (and these workflows) start straight into keys.
+  document-start: disable
+  # Don't treat `on:` / `yes` / `no` style *keys* as booleans (Actions `on:`).
+  truthy:
+    check-keys: false
+  # A single space between content and an inline `#` comment is enough.
+  comments:
+    min-spaces-from-content: 1

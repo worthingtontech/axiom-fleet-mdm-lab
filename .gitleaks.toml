@@ -1,0 +1,28 @@
+# gitleaks configuration for the AXIOM Fleet GitOps lab.
+# Extends the bundled default ruleset, then allowlists the intentional,
+# NON-secret env-var *references* this repo commits. The real values live in
+# GitHub Actions secrets and the host .env -- never in Git.
+#
+# NB: on an ORG-owned repo, gitleaks-action requires a (free) GITLEAKS_LICENSE
+# secret from https://gitleaks.io -- wired in .github/workflows/gitleaks.yml.
+
+title = "AXIOM Fleet GitOps gitleaks config"
+
+[extend]
+# Begin from gitleaks' built-in rules, then layer the allowlist below.
+useDefault = true
+
+[[allowlists]]
+description = "Fleet GitOps env-var placeholders (references, not secrets)"
+# OR: a finding is allowlisted if it matches ANY listed condition.
+condition = "OR"
+# The literal `$FLEET_*` placeholders committed in gitops/*.yml and examples.
+regexes = [
+  '''\$FLEET_[A-Z0-9_]*ENROLL_SECRET''',
+  '''\$FLEET_API_TOKEN''',
+]
+# Example/fixture files carry placeholder tokens by design.
+paths = [
+  '''.*\.example\.ya?ml''',
+  '''.*/fixtures/.*''',
+]

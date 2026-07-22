@@ -1,0 +1,26 @@
+name: gitleaks
+
+# Secret scanning on every push, PR, and on demand. Uses the repo's .gitleaks.toml
+# (default rules + the intentional $FLEET_* placeholder allowlist).
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+  pull-requests: write        # so the action can comment findings on PRs
+  security-events: write      # so findings can surface in the Security tab
+
+jobs:
+  scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history so gitleaks can scan every commit
+
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ORG-owned repos REQUIRE a (free) license key from gitleaks.io.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_CONFIG: .gitleaks.toml

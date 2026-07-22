@@ -1,0 +1,103 @@
+name: Fleet GitOps Drift Detection
+
+# Nightly (and on-demand) comparison of the LIVE Fleet server against the
+# committed desired state. Runs on the self-hosted LAN runner -- the only box
+# that can reach https://fleet.axiom.lab. Trusted, main-only, never fork-triggered.
+on:
+  schedule:
+    - cron: "0 8 * * *"        # 08:00 UTC daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write                # so drift can open a tracking issue
+
+concurrency:
+  group: fleet-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Detect config drift
+    runs-on: [self-hosted, Windows, fleet-apply]
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}    # consumed by `gh` (label + issue create)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fleetctl
+        run: |
+          npm install -g fleetctl@4.89.1
+          fleetctl --version
+
+      - name: Point fleetctl at the live server
+        run: |
+          # Live LAN server; TLS validated via the Windows store (mkcert -install).
+          # NEVER --insecure.
+          fleetctl config set \
+            --address https://fleet.axiom.lab \
+            --token "${{ secrets.FLEET_API_TOKEN }}"
+
+      - name: Generate GitOps from live state
+        run: |
+          rm -rf .drift
+          mkdir -p .drift
+          # The committed gitops/ tree was seeded with this same generator
+          # (ADR-0006), so a clean lab regenerates to an identical tree.
+          fleetctl generate-gitops --dir .drift --force
+
+      - name: Diff live vs committed
+        run: |
+          set -euo pipefail
+
+          # Normalize a GitOps tree into a comparable form:
+          #   * strip trailing whitespace
+          #   * drop full-line comments and blank lines
+          #   * neutralize the enroll-secret line (committed side = env ref;
+          #     generated side = redacted) so it never false-positives
+          normalize() {
+            local src="$1" dst="$2" f rel
+            rm -rf "$dst"
+            mkdir -p "$dst"
+            while IFS= read -r f; do
+              rel="${f#"$src"/}"
+              mkdir -p "$dst/$(dirname "$rel")"
+              sed -e 's/[[:space:]]*$//' \
+                  -e '/^[[:space:]]*#/d' \
+                  -e '/^[[:space:]]*$/d' \
+                  -e 's/\(secret:\).*/\1 REDACTED/' \
+                  "$f" > "$dst/$rel"
+            done < <(find "$src" -type f \( -name '*.yml' -o -name '*.yaml' \))
+          }
+
+          normalize gitops   .norm_git
+          normalize .drift   .norm_live
+
+          if git diff --no-index --exit-code .norm_git .norm_live > drift.patch; then
+            echo "No drift: live Fleet matches the committed desired state."
+          else
+            echo "DRIFT DETECTED."
+            {
+              echo "## Fleet GitOps drift detected"
+              echo ""
+              echo "The live server at https://fleet.axiom.lab diverges from the"
+              echo "committed \`gitops/\` desired state. Re-apply (merge to main) or"
+              echo "reconcile the tree, then re-run this job."
+              echo ""
+              echo '```diff'
+              cat drift.patch
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY" > issue-body.md
+
+            # Ensure the label exists (idempotent), then file the tracking issue.
+            gh label create drift --color B60205 --description "Fleet GitOps drift" 2>/dev/null || true
+            gh issue create \
+              --title "Fleet drift $(date -u +%Y-%m-%d)" \
+              --label drift \
+              --body-file issue-body.md
+
+            exit 1
+          fi
