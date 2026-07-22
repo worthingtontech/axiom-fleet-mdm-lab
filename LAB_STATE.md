@@ -219,7 +219,14 @@ time** — a second concurrent boot froze in initramfs (CPU soft-lockup). Booted
 `new-linux-vm.ps1` hardened through 3 runtime-found bugs (EAP+stderr, ca_certs template corruption,
 teardown-before-seed ordering).
 
-**Remaining Phase 2:** gpu-node-2 + ml-workstation (mechanical repeats), Windows osquery+MDM (needs a
-Win11 Eval VM + WSTEP CA), Android AVD (biggest risk — may need a physical device).
+**Windows MDM enabled server-side ✅** (ADR-0005): WSTEP identity CA generated
+(`infra/scripts/new-wstep-ca.ps1` → `infra/mdm/`, gitignored, mounted `/etc/fleet/mdm:ro`),
+`FLEET_MDM_WINDOWS_WSTEP_IDENTITY_CERT/_KEY` set, fleet restarted, and
+`PATCH /api/latest/fleet/config` → **`windows_enabled_and_configured: true`** (verified).
+(Enable toggle is imperative for now; Phase 3 moves it into GitOps.)
+
+**Remaining Phase 2:** the Windows **client** VM (Win11 Eval ISO → VBox VM → fleetd MSI →
+osquery + auto MDM enroll; needs the mkcert CA in `LocalMachine\Root` + an interactive sign-in);
+Android AVD (emulator-only attempt, Play-Integrity risk); gpu-node-2 + ml-workstation (on-demand).
 
 _(Phase 1+ evidence appended here as each phase passes its checks.)_

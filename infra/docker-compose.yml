@@ -145,6 +145,10 @@ services:
       - fleet-logs:/logs      # filesystem osquery status+result logs
       - fleet-data:/data      # misc fleet file state
       - fleet-vulndb:/vulndb  # CVE feed cache (avoids re-download each boot)
+      # Windows MDM WSTEP identity CA (cert+key) -- signs Windows MDM client
+      # identity certs; separate from the mkcert TLS CA. Generated (gitignored)
+      # by infra/scripts/new-wstep-ca.ps1; referenced by FLEET_MDM_WINDOWS_WSTEP_*.
+      - ./mdm:/etc/fleet/mdm:ro
     ports:
       # Loopback-only debug publish of the PLAINTEXT listener, e.g.
       #   curl http://127.0.0.1:1337/healthz

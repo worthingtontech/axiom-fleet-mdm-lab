@@ -18,6 +18,10 @@ infra/tls/*.pem
 infra/tls/*-key.pem
 rootCA*.pem
 
+# ─── Windows MDM WSTEP identity CA (per-machine; the key is secret) ──────
+infra/mdm/*.key
+infra/mdm/*.crt
+
 # ─── VM artifacts (huge, per-machine, rebuilt from Git + scripts) ────────
 *.iso
 *.vdi
