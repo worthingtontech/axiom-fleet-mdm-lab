@@ -1,0 +1,8 @@
+# actionlint configuration.
+# Declare the custom self-hosted runner label used by the apply + drift
+# workflows so `runs-on: [self-hosted, Windows, fleet-apply]` doesn't trip
+# actionlint's [runner-label] check. The runner is registered with this label
+# on the LAN host (see runbooks/ci-cd-setup.md, ADR-0007).
+self-hosted-runner:
+  labels:
+    - fleet-apply
