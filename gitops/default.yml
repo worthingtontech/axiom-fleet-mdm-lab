@@ -1,0 +1,112 @@
+agent_options:
+  config:
+    decorators:
+      load:
+      - SELECT uuid AS host_uuid FROM system_info;
+      - SELECT hostname AS hostname FROM system_info;
+    options:
+      disable_distributed: false
+      distributed_interval: 10
+      distributed_plugin: tls
+      distributed_tls_max_attempts: 3
+      logger_tls_endpoint: /api/osquery/log
+      logger_tls_period: 10
+      pack_delimiter: /
+  overrides:
+controls:
+  # Windows MDM toggle. C1 (ADR-0006): this is a TOP-LEVEL `controls` key in the
+  # GitOps YAML (NOT org_settings.mdm -- that is the /api/v1/fleet/config shape).
+  # generate-gitops does NOT emit it, so it is added by hand; omitting it on apply
+  # would silently turn Windows MDM back OFF. Verified against the live server.
+  windows_enabled_and_configured: true
+labels:
+- description: AXIOM elevated trust tier
+  label_membership_type: dynamic
+  name: high-trust-enclave
+  query: SELECT 1 FROM file WHERE path = '/etc/axiom/tier.d/elevated';
+org_settings:
+  activity_expiry_settings:
+    activity_expiry_enabled: false
+    activity_expiry_window: 0
+    preserve_host_activities_on_reenrollment: false
+  certificate_authorities:
+    custom_est_proxy:
+    custom_scep_proxy:
+    digicert:
+    hydrant:
+    ndes_scep_proxy:
+    smallstep:
+  features:
+    enable_host_users: true
+    enable_software_inventory: true
+    historical_data:
+      uptime: true
+      vulnerabilities: true
+  fleet_desktop:
+    alternative_browser_host:
+    transparency_url: https://fleetdm.com/transparency
+  host_expiry_settings:
+    host_expiry_enabled: false
+    host_expiry_window: 0
+  integrations:
+    conditional_access_enabled:
+    google_calendar:
+    jira:
+    zendesk:
+  mdm:
+    apple_server_url:
+    end_user_authentication:
+      entity_id:
+      idp_name:
+      issuer_uri:
+      metadata:
+      metadata_url:
+  org_info:
+    contact_url: https://fleetdm.com/company/contact
+    org_logo_url_dark_mode:
+    org_logo_url_light_mode:
+    org_name: Axiom Intelligence
+  secrets:
+  # Env-var reference keeps the real enroll secret out of Git (supplied at apply
+  # time). NB: fleetctl gitops expands variable refs in the RAW file including
+  # comments, so never write a bare dollar-VAR token in a comment here.
+  - secret: $FLEET_GLOBAL_ENROLL_SECRET
+  server_settings:
+    ai_features_disabled: false
+    deferred_save_host: false
+    discard_reports_data: false
+    enable_analytics: true
+    live_reporting_disabled: false
+    report_cap: 0
+    scripts_disabled: false
+    server_url: https://fleet.axiom.lab
+  sso_settings:
+    enable_sso: false
+    enable_sso_idp_login: false
+    entity_id:
+    idp_image_url:
+    idp_name:
+    metadata:
+    metadata_url:
+    sso_server_url:
+  webhook_settings:
+    activities_webhook:
+      destination_url:
+      enable_activities_webhook: false
+    failing_policies_webhook:
+      destination_url:
+      enable_failing_policies_webhook: false
+      host_batch_size: 0
+    host_status_webhook:
+      days_count: 0
+      destination_url:
+      enable_host_status_webhook: false
+      host_percentage: 0
+    interval: 24h0m0s
+    vulnerabilities_webhook:
+      destination_url:
+      enable_vulnerabilities_webhook: false
+      host_batch_size: 0
+  yara_rules:
+policies:
+reports:

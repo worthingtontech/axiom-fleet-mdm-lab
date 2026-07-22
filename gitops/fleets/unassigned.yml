@@ -1,0 +1,14 @@
+# fleets/unassigned.yml -- host-scoped config for "No team" / Unassigned hosts.
+# On Fleet FREE (no teams) this is EVERY host. Successor to the deprecated
+# teams/no-team.yml (Fleet 4.82.0); detected by filename, needs no `name:` key.
+#
+# Allowed keys here are ONLY: policies, controls, software.
+# labels / queries(reports) / agent_options / org_settings belong in default.yml
+# and are rejected here (ADR-0006 / research C7).
+#
+# Phase 4 fills `policies:` with the >=15 CIS-mapped policies (incl. the enclave
+# self-scoping ones). Empty for now.
+name: Unassigned      # v4.89.1 requires this exact value for unassigned.yml
+policies:
+controls:
+software:
