@@ -1,3 +1,8 @@
+# Project AXIOM -- GitOps desired state for the whole Fleet (global "All fleets").
+# Applied by CI on merge to main (.github/workflows/apply.yml). Do not edit the
+# live server in the UI: click-ops is flagged by the nightly drift-detection job.
+# Seeded from `fleetctl generate-gitops`; keep it generator-shaped so drift diffs
+# stay clean. See docs/adr/0006.
 agent_options:
   config:
     decorators:

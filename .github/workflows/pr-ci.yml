@@ -202,12 +202,26 @@ jobs:
             -e FLEET_MYSQL_DATABASE -e FLEET_REDIS_ADDRESS \
             "${FLEET_IMAGE}" fleet prepare db --no-prompt
 
+      - name: Generate throwaway WSTEP identity CA (Windows MDM validation)
+        run: |
+          # default.yml sets controls.windows_enabled_and_configured: true, which
+          # Fleet refuses to validate without a WSTEP identity cert+key pair. Mint a
+          # disposable one for the ephemeral CI server (mirrors infra/scripts/new-wstep-ca.ps1).
+          mkdir -p wstep
+          openssl genrsa -traditional -out wstep/wstep.key 2048 2>/dev/null
+          openssl req -x509 -new -nodes -key wstep/wstep.key -sha256 -days 30 \
+            -out wstep/wstep.crt -subj '/CN=Fleet CI WSTEP/C=US/O=CI.'
+          chmod 0644 wstep/wstep.key wstep/wstep.crt
+
       - name: Start Fleet (backgrounded container)
         run: |
           docker run -d --name fleet --network host \
+            -v "$PWD/wstep:/wstep:ro" \
             -e FLEET_MYSQL_ADDRESS -e FLEET_MYSQL_USERNAME -e FLEET_MYSQL_PASSWORD \
             -e FLEET_MYSQL_DATABASE -e FLEET_REDIS_ADDRESS \
             -e FLEET_SERVER_TLS -e FLEET_SERVER_ADDRESS -e FLEET_SERVER_PRIVATE_KEY \
+            -e FLEET_MDM_WINDOWS_WSTEP_IDENTITY_CERT=/wstep/wstep.crt \
+            -e FLEET_MDM_WINDOWS_WSTEP_IDENTITY_KEY=/wstep/wstep.key \
             "${FLEET_IMAGE}" fleet serve
 
       - name: Wait for /healthz
