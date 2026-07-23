@@ -100,7 +100,7 @@ and drives remediation back down to hosts via orbit.
 ### (a) A Linux VM enrolls and reports compliance
 
 1. **Package build (on the host):**
-   `fleetctl package --type deb --fleet-url https://axiom-core.lab:443 --enroll-secret <secret> --fleet-certificate rootCA.pem`.
+   `fleetctl package --type deb --fleet-url https://fleet.axiom.lab:443 --enroll-secret <secret> --fleet-certificate rootCA.pem`.
    The `--fleet-certificate` flag bakes the **mkcert Root CA** into the package —
    **the CA, not the leaf** — because `osqueryd` does **not** read the OS trust store
    (only orbit and Fleet Desktop do). Without the CA baked in, osquery TLS enrollment
@@ -108,7 +108,7 @@ and drives remediation back down to hosts via orbit.
 2. **Install on `gpu-node-1`:** the `.deb` lays down **orbit** (updater/supervisor),
    **osqueryd**, and **Fleet Desktop**. orbit starts first and reads the enroll secret.
 3. **TLS handshake at Caddy:** orbit opens **HTTPS to Caddy :443**. Caddy presents its
-   **mkcert leaf** (SAN = `axiom-core.lab`); the agent validates it against the baked-in
+   **mkcert leaf** (SAN = `fleet.axiom.lab`); the agent validates it against the baked-in
    Root CA. Caddy then reverse-proxies cleartext to **Fleet :1337**.
 4. **Enroll:** osquery hits the **osquery TLS API** (`POST /api/v1/osquery/enroll`)
    with the enroll secret + a host identifier; Fleet returns a **node key** (the

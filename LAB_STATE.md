@@ -3,6 +3,12 @@
 > Single source of truth for **what's running, what phase we're in, and how to
 > resume**. Updated at every phase boundary. If the Fleet server dies, the
 > "Resume from cold" section + Git restores everything.
+>
+> **This file is the internal engineering journal, not the entry point.** For the
+> honest phase-by-phase view of what's *completed*, the *hold-ups*, and what's
+> *pending*, see **[docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md)**. Pre-public
+> security review: **[docs/security-review.md](docs/security-review.md)** · public-flip
+> runbook: **[docs/going-public.md](docs/going-public.md)**.
 
 ---
 
@@ -91,12 +97,12 @@ data-flow walkthroughs.
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](docs/adr/0001-right-sized-topology.md) | Right-sized topology for a 63 GB Win 11 Home host | Proposed |
-| [0002](docs/adr/0002-vm-backend-virtualbox-cloudinit.md) | VirtualBox + cloud-init (NoCloud) as VM backend | Proposed |
+| [0001](docs/adr/0001-right-sized-topology.md) | Right-sized topology for a 63 GB Win 11 Home host | **Accepted** |
+| [0002](docs/adr/0002-vm-backend-virtualbox-cloudinit.md) | VirtualBox + cloud-init (NoCloud) as VM backend | **Accepted** |
 | [0003](docs/adr/0003-free-tier-trust-tiering.md) | Trust-tiering on Free via self-scoping policy SQL (NOT label/enroll-secret scoping) | **Accepted** |
 | [0004](docs/adr/0004-tls-termination-and-lab-dns.md) | Caddy TLS termination + mkcert CA + lab DNS | **Accepted** |
-| [0005](docs/adr/0005-windows-mdm-wstep.md) | Windows MDM enablement via WSTEP identity CA | **Accepted** |
-| [0006](docs/adr/0006-gitops-ci-architecture.md) | GitOps layout + CI/CD gate architecture | **Accepted** |
+| [0005](docs/adr/0005-windows-mdm-enablement.md) | Windows MDM enablement via WSTEP identity CA | **Accepted** |
+| [0006](docs/adr/0006-gitops-cicd-architecture.md) | GitOps layout + CI/CD gate architecture | **Accepted** |
 | [0007](docs/adr/0007-self-hosted-runner-security.md) | Self-hosted runner security model | **Accepted** |
 | [0008](docs/adr/0008-osquery-table-detection-choices.md) | Policy detection tables under fleetd's osquery constraints (augeas/iptables/suid_bin) | **Accepted** |
 | [0009](docs/adr/0009-canary-progressive-rollout.md) | Canary→production progressive rollout, telemetry-gated, on Free (self-scoping SQL) | **Accepted** |

@@ -1,7 +1,7 @@
 # ADR-0009 — Progressive rollout (canary → production) gated on telemetry, on Fleet Free
 
 - **Status:** Accepted (2026-07-22)
-- **Builds on:** [ADR-0003](0003-free-tier-trust-tiering.md) (self-scoping SQL), [ADR-0006](0006-gitops-ci-architecture.md) (GitOps/CI), Phase 5 telemetry (the exporter)
+- **Builds on:** [ADR-0003](0003-free-tier-trust-tiering.md) (self-scoping SQL), [ADR-0006](0006-gitops-cicd-architecture.md) (GitOps/CI), Phase 5 telemetry (the exporter)
 - **Related:** [gitops/promote/](../../gitops/promote/), [.github/workflows/promote.yml](../../.github/workflows/promote.yml)
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-0001: Right-sized lab topology for a 63 GB Windows 11 Home host
 
-- **Status:** Proposed (awaiting operator approval — Phase 0 acceptance gate)
+- **Status:** Accepted (Phase 0 — topology approved and implemented; the stack + enclave-01 run within budget)
 - **Date:** 2026-07-20
 - **Deciders:** Founding Infrastructure Security Engineer (operator)
 - **Phase:** 0 — Recon & plan

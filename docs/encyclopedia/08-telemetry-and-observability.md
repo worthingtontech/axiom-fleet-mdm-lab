@@ -15,13 +15,15 @@ flowchart LR
     loki["Loki :3100"]
     prom["Prometheus :9090"]
     graf["Grafana :3000"]
+    exp["fleet-exporter :9100<br/>axiom_* metrics"]
   end
   osq -->|"HTTPS results (via Caddy)"| fleet
   fleet -->|"write JSON lines"| logs
   vector -->|"tail files (ro)"| logs
   vector -->|"HTTP push"| loki
   prom -->|"scrape /metrics (pull)"| fleet
-  prom -->|"scrape internal metrics"| vector
+  prom -->|"scrape :9100 (pull)"| exp
+  exp -->|"read Fleet REST API"| fleet
   graf -->|"LogQL"| loki
   graf -->|"PromQL"| prom
 ```
@@ -55,7 +57,7 @@ flowchart LR
   - **Result logs** — the output rows of *scheduled queries* and the differential/snapshot events they generate (new process, changed file via `file_events`, software inventory delta, etc.). This is the substance: "host `enclave-01` saw file `/opt/axiom/weights-cache/model.bin` modified."
   - **Status logs** — osquery's internal INFO/WARNING/ERROR messages: "query X took 900ms," "table Y failed," "config refreshed." This is the *meta* stream — the agent describing its own operation, not the endpoint's state.
   - Analogy: result logs are the survey *answers*; status logs are the *field notes from the interviewer* ("respondent hesitated, question 4 timed out").
-- **Why it's in Project AXIOM** — Result logs are the raw material for two of the three dashboards: the **Enclave FIM** timeline is literally `file_events` result rows, and **compliance-by-tier** is built from scheduled-query result rows carrying each host's trust-tier. Status logs are how the lab answers "is the agent healthy / are queries failing?" without SSHing into a VM. Both are captured for free and shipped by the same Vector pipeline.
+- **Why it's in Project AXIOM** — Result logs are the raw material for two of the three dashboards: the **Enclave FIM** timeline is literally `file_events` result rows, and **compliance** is built from scheduled-query result rows carrying each host's trust-tier. Status logs are how the lab answers "is the agent healthy / are queries failing?" without SSHing into a VM. Both are captured for free and shipped by the same Vector pipeline.
 - **Where it sits in the stack** — Produced by [osqueryd inside fleetd](./03-fleet-core.md#fleetd) on each managed host, relayed by the Fleet server, and written to the [filesystem logging destination](#the-filesystem-logging-destination-the-logs-volume). Immediately downstream is [Vector](#vector-the-log-shipper-and-router).
 - **How it works** — Hosts run scheduled queries per their agent config; osquery batches results and status lines and sends them **up to the Fleet server** on its normal check-in. Fleet does not interpret them as telemetry — it hands each stream to the configured *log plugin*. AXIOM sets the **filesystem** plugin for both, so Fleet appends newline-delimited JSON to two files. Fleet supports many other destinations (`firehose`, `kinesis`, `kafka`, `pubsub`, `lambda`, `stdout`…); `filesystem` is chosen because it's $0 and local. Key env vars (verify names against the v4.89.1 tag):
 
@@ -84,7 +86,7 @@ flowchart LR
     Note over L: newline-delimited JSON
   ```
 - **Free vs Premium** — Filesystem osquery logging (both streams) is **Free**. What you *query* those results *for* can hit Premium limits elsewhere — e.g. vulnerability **CVE IDs** appear in software inventory results (Free) but **CVSS/EPSS/KEV scores are Premium**, so a "risk by score" panel isn't buildable at $0.
-- **Gotchas / myth-busting** — (1) **Result ≠ status is a common mix-up:** if a compliance panel is empty, check you're reading `osqueryd.results.log`, not the status file. (2) **Policies don't emit result logs.** Fleet *policies* (pass/fail) live in the Fleet DB and surface via UI/API/webhooks — they are *not* in the result log. To get compliance data into Loki, AXIOM schedules **queries** that mirror the policy checks (carrying the trust-tier column); see [compliance-by-tier](#compliance-by-tier). (3) **Snapshot vs differential:** a query in `snapshot` mode logs the full result set every run (noisier); `differential` logs only adds/removes — pick per query to control log volume. (4) Empty results are normal — a scheduled query with no matching rows logs nothing.
+- **Gotchas / myth-busting** — (1) **Result ≠ status is a common mix-up:** if a compliance panel is empty, check you're reading `osqueryd.results.log`, not the status file. (2) **Policies don't emit result logs.** Fleet *policies* (pass/fail) live in the Fleet DB and surface via UI/API/webhooks — they are *not* in the result log. To get compliance data into Loki, AXIOM schedules **queries** that mirror the policy checks (carrying the trust-tier column); see [compliance](#compliance). (3) **Snapshot vs differential:** a query in `snapshot` mode logs the full result set every run (noisier); `differential` logs only adds/removes — pick per query to control log volume. (4) Empty results are normal — a scheduled query with no matching rows logs nothing.
 - **See also** — [The filesystem logging destination](#the-filesystem-logging-destination-the-logs-volume) · [policy-as-code](./07-policy-as-code.md) · [Enclave FIM dashboard](#enclave-fim) · [Vulnerability detection (automation/IR)](./10-automation-and-ir.md)
 
 ---
@@ -118,11 +120,11 @@ flowchart LR
 - **What it actually is** — Vector is a single Rust binary that models a pipeline as **sources → transforms → sinks**. Sources ingest (here: a `file` source tailing `/logs/*.log`); transforms reshape (parse JSON, extract fields, add/rename labels via VRL — Vector Remap Language); sinks emit (here: a `loki` sink). It's the modern replacement for Logstash/Fluentd, chosen for low memory and a clean config. Analogy: a mailroom that opens each incoming letter, stamps it with the right routing labels, and forwards it to the correct department.
 - **Why it's in Project AXIOM** — Loki wants pushed, *labeled* streams — it won't tail files itself. Vector is the adapter: it turns Fleet's flat JSON log lines into Loki-shaped streams, attaching the labels the dashboards filter on (`host`, `trust_tier`, `query_name`, `stream=result|status`, `enclave=true`). It also normalizes the two osquery log shapes and can drop noise before it ever hits storage, keeping Loki small on a laptop.
 - **Where it sits in the stack** — Squarely between the [`/logs` volume](#the-filesystem-logging-destination-the-logs-volume) (its source) and [Loki](#loki-the-log-store-and-logql) (its sink), as a container on the `axiom-core` Docker network. It is the only component that reads the raw log files.
-- **How it works** — On boot Vector reads its config (TOML/YAML), opens the `file` source, and begins tailing from its last checkpoint. Each new line flows through the transform graph: `parse_json` turns the string into structured fields; VRL logic promotes select fields to Loki *labels* (kept low-cardinality) while the full JSON stays in the log *body*. The `loki` sink batches lines and `POST`s them. Vector also runs an `internal_metrics` source so it can report its own throughput/errors (exposed for Prometheus — see [exporters](#data-sources-and-exporters)).
+- **How it works** — On boot Vector reads its config (TOML/YAML), opens the `file` source, and begins tailing from its last checkpoint. Each new line flows through the transform graph: `parse_json` turns the string into structured fields; VRL logic promotes select fields to Loki *labels* (kept low-cardinality) while the full JSON stays in the log *body*. The `loki` sink batches lines and `POST`s them. Vector *can* also run an `internal_metrics` source to report its own throughput/errors, but **in this lab Prometheus does not scrape Vector** — the only custom scrape target is the `fleet-exporter` (see [exporters](#data-sources-and-exporters)).
 - **Who talks to it, and how** —
   1. **Vector → `/logs` files:** local read-only tail (no network).
   2. **Vector → Loki:** outbound HTTP `POST` to `http://loki:3100/loki/api/v1/push` on the internal Docker network, body = a batch of `{stream: {labels…}, values: [[ts, line], …]}`. **Vector initiates**; Loki never calls Vector.
-  3. **Prometheus → Vector:** *inbound* scrape — Prometheus pulls Vector's `internal_metrics` from a `prometheus_exporter` sink (e.g. `vector:9598/metrics`). Direction reversed vs the Loki hop.
+  3. **Prometheus → Vector:** *not wired in this lab.* Vector could expose its `internal_metrics` via a `prometheus_exporter` sink, but AXIOM's Prometheus scrapes only three jobs — Fleet, the custom `fleet-exporter`, and itself — **not** Vector.
   4. **Vector → Fleet `/metrics` (optional):** Vector *can* host a `prometheus_scrape` source to pull Fleet metrics itself, but AXIOM leaves metric-scraping to Prometheus to keep responsibilities clean.
 
   ```mermaid
@@ -130,7 +132,6 @@ flowchart LR
     logs[("/logs/*.log")] -->|file source: tail ro| V[Vector]
     V -->|parse_json + VRL relabel| V
     V -->|"HTTP POST /loki/api/v1/push"| loki["Loki :3100"]
-    prom["Prometheus :9090"] -->|"scrape :9598/metrics (pull)"| V
   ```
 - **Free vs Premium** — Vector is MPL-2.0 FOSS, $0. No Fleet license interaction.
 - **Gotchas / myth-busting** — (1) **Label cardinality is a footgun:** promote `host`/`trust_tier`/`stream` to Loki labels, but **never** promote unbounded fields (a raw timestamp, a file hash, a PID) — high-cardinality labels blow up Loki's index. Keep those in the log *body* and extract at query time with LogQL. (2) Vector is *not* the store — if you never run Loki, tailing still "works" but nothing is queryable. (3) Config-format churn: Vector renames sink options across releases; pin the Vector image tag and validate with `vector validate` in CI. (4) Timestamp handling: parse the osquery event's own `unixTime`/`calendarTime` into Vector's `@timestamp` so Loki indexes event-time, not ingest-time — otherwise a backlog after a restart lands all lines at "now."
@@ -142,7 +143,7 @@ flowchart LR
 
 - **In one line** — Grafana's horizontally-scalable log database that indexes only *labels* (not full text) and is queried with **LogQL**; the store for the logs pillar.
 - **What it actually is** — Loki (by Grafana Labs) is "Prometheus, but for logs": it stores log lines grouped into **streams**, where a stream is a unique set of labels (`{host="enclave-01", stream="result", trust_tier="elevated"}`). It builds a small index over *labels only* and keeps the raw log bodies in compressed **chunks**. That's why it's cheap: it doesn't full-text-index gigabytes; it narrows by labels first, then scans the matching chunks. **LogQL** is its query language — a log stream selector `{…}` plus optional line filters (`|= "weights-cache"`), parsers (`| json`), and metric aggregations (`count_over_time`, `rate`). Analogy: a library that indexes books only by a few spine labels (author, genre, year); to find a sentence you first pull the right shelf, then read.
-- **Why it's in Project AXIOM** — It's the queryable home for everything Vector ships, and the backing store for two of the three dashboards (**Enclave FIM** and **compliance-by-tier**). LogQL's `count_over_time`/`rate` also let Loki produce *metrics-shaped* panels (e.g. "FIM events per hour") without a separate metrics pipeline, which keeps the lab small.
+- **Why it's in Project AXIOM** — It's the queryable home for everything Vector ships, and the backing store for two of the three dashboards (**Enclave FIM** and **compliance**). LogQL's `count_over_time`/`rate` also let Loki produce *metrics-shaped* panels (e.g. "FIM events per hour") without a separate metrics pipeline, which keeps the lab small.
 - **Where it sits in the stack** — Downstream of [Vector](#vector-the-log-shipper-and-router) (its only writer in this lab), upstream of [Grafana](#grafana-dashboards) (its only reader). Runs as a container on the `axiom-core` network in **monolithic/single-binary mode** with **filesystem** chunk storage — no S3/object store needed for a laptop.
 - **How it works** — Loki exposes an HTTP API on `:3100`. Writes arrive at `/loki/api/v1/push`; Loki appends each line to the in-memory stream for its label set, periodically flushing chunks to local disk (with a boltdb-shipper/TSDB index). Reads arrive at `/loki/api/v1/query_range` (and `/query`), where the LogQL engine resolves the label selector against the index, streams the matching chunks, applies filters/parsers/aggregations, and returns series or log lines. Retention and chunk size are configured for the lab's small footprint.
 - **Who talks to it, and how** —
@@ -178,7 +179,7 @@ flowchart LR
   *(Confirmed against Fleet's server-config reference: config shape `prometheus.basic_auth.{username,password,disable}`, env vars `FLEET_PROMETHEUS_BASIC_AUTH_{USERNAME,PASSWORD,DISABLE}`, with `disable` defaulting to `false`. This default-off behavior is the known training-data delta the research brief flags — see [fleetdm.com/docs](https://fleetdm.com/docs/configuration/fleet-server-configuration).)*
 - **Who talks to it, and how** —
   1. **Prometheus → Fleet (scrape):** outbound HTTP `GET fleet:1337/metrics` on the internal Docker network, on the scrape interval. **Prometheus initiates; Fleet is passive.** Note this hop **bypasses Caddy** — there's no reason to go through the public TLS proxy for a container-to-container pull, so Prometheus hits `:1337` directly and the endpoint is never exposed to the LAN.
-  2. **Prometheus → Vector / Loki / node exporters (scrape):** same pull pattern to each target's metrics port.
+  2. **Prometheus → custom `fleet-exporter` (scrape):** outbound `GET fleet-exporter:9100/metrics` for the lab's `axiom_*` business/compliance gauges. All told, Prometheus runs **exactly three** scrape jobs in this lab: Fleet (`fleet:1337`, basic-auth), `fleet-exporter` (`fleet-exporter:9100`), and Prometheus itself — there is **no** Vector scrape and **no** `node_exporter` anywhere here.
   3. **Grafana → Prometheus (query):** inbound HTTP to `prometheus:9090/api/v1/query_range` carrying PromQL on dashboard refresh.
   4. **Prometheus → Alertmanager (optional):** if alert rules fire, Prometheus pushes to Alertmanager — AXIOM leans on Fleet's failing-policy webhooks (Phase 8) for alerting instead, so this is usually unused.
 
@@ -221,7 +222,7 @@ flowchart LR
 
 - **In one line** — The visualization and exploration front-end that queries Loki (LogQL) and Prometheus (PromQL) and renders them as the lab's dashboards — the single pane of glass at `:3000`.
 - **What it actually is** — Grafana is a web app that connects to one or more **data sources**, runs queries against them, and draws the results as **panels** (time series, stat, table, logs, heatmap…) arranged on **dashboards**. It renders *both* pillars side by side — a metrics chart from Prometheus next to a log stream from Loki — which is why the lab can have one glass instead of two tools. It also has an **Explore** mode for ad-hoc LogQL/PromQL without saving a dashboard. Analogy: the cockpit display that fuses inputs from many different instruments into one readable layout.
-- **Why it's in Project AXIOM** — It's where the whole telemetry layer *pays off*: the three dashboards (fleet-health, compliance-by-tier, Enclave FIM) live here, giving a human (or an interviewer) an at-a-glance read of server health, per-tier compliance, and enclave file integrity. It's the portfolio's "money shot."
+- **Why it's in Project AXIOM** — It's where the whole telemetry layer *pays off*: the three dashboards (fleet-health, compliance, Enclave FIM) live here, giving a human (or an interviewer) an at-a-glance read of server health, per-tier compliance, and enclave file integrity. It's the portfolio's "money shot."
 - **Where it sits in the stack** — The top of Layer 08, a container on `axiom-core`. Downstream of [Prometheus](#prometheus-and-the-metrics-endpoint) and [Loki](#loki-the-log-store-and-logql) (its data sources); optionally fronted by [Caddy](./04-tls-and-pki.md) for external HTTPS access. It stores its own config (dashboards, users) in a small DB (SQLite by default, or the lab's MySQL).
 - **How it works** — On boot Grafana loads **provisioning** files (data sources + dashboard providers — see [dashboards-as-code](#dashboards-as-code-provisioning-from-json-in-git)), registers the Loki and Prometheus data sources, and imports dashboard JSON from disk. When a user opens a dashboard, each panel fires its query to its data source, and Grafana renders the response; panels auto-refresh on an interval. Auth is a local admin (`GF_SECURITY_ADMIN_PASSWORD`) for the lab, with SSO available later via [Keycloak](./09-identity-and-access.md).
 - **Who talks to it, and how** —
@@ -266,11 +267,11 @@ flowchart LR
 - **In one line** — **Data sources** are Grafana's configured backends to *read from* (Loki, Prometheus); **exporters** are little processes that translate some system's state into Prometheus metrics so it becomes *scrapeable* — the two ends of "how does a system show up on a dashboard."
 - **What it actually is** —
   - **Data source (Grafana concept):** a named, typed connection (`type: prometheus`, `url: http://prometheus:9090`, or `type: loki`, `url: http://loki:3100`) with a UID that panels reference. It's *outbound-read* config — Grafana pulling from a store.
-  - **Exporter (Prometheus concept):** a sidecar that exposes a `/metrics` endpoint for something that can't expose Prometheus format itself. `node_exporter` turns Linux host stats (CPU, memory, disk, load) into metrics; `cadvisor` does the same for container stats; Vector's `internal_metrics`→`prometheus_exporter` sink exports Vector's own throughput; Loki/Grafana/Prometheus each self-expose. Fleet needs no exporter — it's *natively* instrumented at [`/metrics`](#prometheus-and-the-metrics-endpoint).
+  - **Exporter (Prometheus concept):** a sidecar that exposes a `/metrics` endpoint for something that can't expose Prometheus format itself. Generic ecosystem examples (**not deployed in this lab**): `node_exporter` turns Linux host stats (CPU, memory, disk, load) into metrics, and `cadvisor` does the same for container stats. **What AXIOM actually deploys is one custom exporter — `fleet-exporter`** (`infra/telemetry/exporter/exporter.py`, scraped at `fleet-exporter:9100`) — a small Python service that reads Fleet's REST API and emits the lab's **`axiom_*`** gauges (`axiom_hosts_online`, `axiom_policy_failing_hosts{policy=…}`, `axiom_label_hosts{label=…}`, `axiom_enclave_canary_ok`, `axiom_exporter_up`). Fleet's own server-health [`/metrics`](#prometheus-and-the-metrics-endpoint) is *native* (no exporter needed for it); the custom `fleet-exporter` is **added on top** to expose the business/compliance figures Fleet does **not** surface as metrics. Those `axiom_*` gauges feed the **compliance** and **Enclave FIM** dashboards and gate the [ADR-0009 canary promote](../adr/0009-canary-progressive-rollout.md).
   - Analogy: a data source is the cable from the cockpit display to an instrument; an exporter is an adapter that gives a dumb sensor a standard plug so the display can read it.
-- **Why it's in Project AXIOM** — Data sources are what let one Grafana render both pillars (the two provisioned connections). Exporters widen what the lab can see beyond Fleet: `node_exporter` on each Ubuntu/Windows VM (or on `axiom-core`) lets Prometheus chart host CPU/RAM/disk alongside Fleet's app metrics, which is useful context on a RAM-constrained laptop running the whole fleet.
+- **Why it's in Project AXIOM** — Data sources are what let one Grafana render both pillars (the two provisioned connections). The lab's one exporter — the custom **`fleet-exporter`** — widens what Prometheus can see *beyond Fleet's server internals* to **business/compliance** truth (how many hosts are online, which policies are failing per tier, whether the enclave canary is intact). (`node_exporter`/`cadvisor` for host/container CPU/RAM/disk are a common addition, but the lab deploys **neither**.)
 - **Where it sits in the stack** — Data sources are a facet of [Grafana](#grafana-dashboards) (provisioned per [dashboards-as-code](#dashboards-as-code-provisioning-from-json-in-git)). Exporters sit *beside the thing they measure* and are scrape *targets* of [Prometheus](#prometheus-and-the-metrics-endpoint) — one on the host, optionally one per VM.
-- **How it works** — Data sources: declared in `datasources.yaml`, created at Grafana boot, addressed by UID in dashboard JSON. Exporters: each is a small HTTP server on its own port (`node_exporter` :9100, `cadvisor` :8080, Vector exporter :9598…); you add a `scrape_config` job per exporter in `prometheus.yml`, and Prometheus pulls them on the interval like any target.
+- **How it works** — Data sources: declared in `datasources.yaml`, created at Grafana boot, addressed by UID in dashboard JSON. Exporters: each is a small HTTP server on its own port — here the custom **`fleet-exporter`** listens on `:9100`, and its `scrape_config` job in `prometheus.yml` is one of the **three** Prometheus scrapes (Fleet `fleet:1337`, `fleet-exporter:9100`, and Prometheus itself). (Generic exporters like `node_exporter` or `cadvisor` would each get their own job, but the lab runs none of them.)
 - **Who talks to it, and how** —
   1. **Grafana → data source (Prometheus/Loki):** outbound query (PromQL/LogQL) as covered above; the data source is the *destination*, Grafana initiates.
   2. **Prometheus → exporter:** outbound scrape `GET <exporter>:<port>/metrics`; Prometheus initiates, the exporter passively answers.
@@ -280,11 +281,11 @@ flowchart LR
   |---|---|---|---|
   | Prometheus | Grafana data source | Grafana | `prometheus:9090` |
   | Loki | Grafana data source | Grafana | `loki:3100` |
-  | node_exporter | Prometheus exporter | Prometheus (scrape) | `:9100/metrics` |
-  | Vector internal | Prometheus exporter | Prometheus (scrape) | `:9598/metrics` |
+  | **fleet-exporter** (custom, deployed) | Prometheus exporter — emits `axiom_*` | Prometheus (scrape) | `fleet-exporter:9100/metrics` |
   | Fleet | *native* (no exporter) | Prometheus (scrape) | `fleet:1337/metrics` |
+  | node_exporter / cadvisor | generic ecosystem exporters — **not deployed here** | — | — |
 - **Free vs Premium** — All FOSS, $0. Note the *content* ceiling again: Fleet exposes server metrics freely, but device-*data* dashboards (e.g. vuln **scores**) are limited by Fleet's Free tier, not by the exporter mechanism.
-- **Gotchas / myth-busting** — (1) **Native ≠ exporter:** don't hunt for a "Fleet exporter" — Fleet *is* the target; you just point a scrape job at it. (2) **UID, not name:** panels bind to the data-source UID; renaming a source in the UI without fixing UIDs breaks dashboards. (3) An exporter shows the *host/container's* view, which can differ from what's inside a VM — `node_exporter` on `axiom-core` measures the Docker host, not `enclave-01`; to chart a VM you run an exporter *in* that VM. (4) More exporters = more scrape load and cardinality — on a laptop, add them deliberately.
+- **Gotchas / myth-busting** — (1) **Native ≠ exporter:** don't hunt for a "Fleet exporter" — Fleet *is* the target; you just point a scrape job at it. (2) **UID, not name:** panels bind to the data-source UID; renaming a source in the UI without fixing UIDs breaks dashboards. (3) An exporter shows the *host/container's* view, which can differ from what's inside a VM — a `node_exporter` on `axiom-core` (were you to add one; the lab doesn't) would measure the Docker host, not `enclave-01`; to chart a VM you'd run an exporter *in* that VM. (4) More exporters = more scrape load and cardinality — on a laptop, add them deliberately.
 - **See also** — [Grafana](#grafana-dashboards) · [Prometheus & scraping](#promql-and-scraping) · [dashboards-as-code](#dashboards-as-code-provisioning-from-json-in-git) · [containers & Docker](./02-containers-and-docker.md)
 
 ---
@@ -296,7 +297,7 @@ The payoff of the layer: three provisioned dashboards, each mapping to a specifi
 | Dashboard | Question it answers | Primary source | Query lang | Pillar |
 |---|---|---|---|---|
 | **fleet-health** | "Is the Fleet server healthy and keeping up?" | Prometheus | PromQL | metrics |
-| **compliance-by-tier** | "How compliant is each trust tier, right now and over time?" | Loki (+ optional exporter/API) | LogQL | logs |
+| **compliance** | "How compliant is each trust tier, right now and over time?" | Loki (+ optional exporter/API) | LogQL | logs |
 | **Enclave FIM** | "What changed under the enclave's protected weights cache?" | Loki | LogQL | logs |
 
 ### fleet-health
@@ -308,7 +309,7 @@ The payoff of the layer: three provisioned dashboards, each mapping to a specifi
 - **Gotchas** — Needs the `/metrics` scrape to actually succeed → **`FLEET_PROMETHEUS_BASIC_AUTH_DISABLE=true`** (or creds), else every panel is empty and it looks like Fleet is "down." A gap after restart is a counter reset, not an outage.
 - **See also** — [Prometheus](#prometheus-and-the-metrics-endpoint) · [PromQL](#promql-and-scraping) · [fleet-core](./03-fleet-core.md)
 
-### compliance-by-tier
+### compliance
 
 - **In one line** — A logs-backed dashboard breaking policy/compliance state down by **trust tier** (Standard vs Elevated/Enclave), the visual proof that ADR-0003's free-tier tiering actually works.
 - **What it actually is / Why it's here** — The lab's tiering story made visible: it must show that Elevated controls (FDE verified, screen-lock ≤5 min, FIM present) are evaluated against enclave hosts and that Standard hosts aren't falsely flagged. Because [Fleet Free can't scope policies by label/team](./07-policy-as-code.md), the tier can't come from a Fleet "team" field — it must come from the **provisioned tier marker** (`/etc/axiom/trust-tier`, the `enclave` label, the canary path).
@@ -334,7 +335,7 @@ The payoff of the layer: three provisioned dashboards, each mapping to a specifi
 
 - **Two pipelines, one glass.** Logs: osquery → Fleet → `/logs` → **Vector** → **Loki** (LogQL). Metrics: **Prometheus** *pulls* Fleet's `/metrics` (PromQL). **Grafana** reads both.
 - **Direction cheat-sheet:** hosts *push* logs up to Fleet; Vector *pushes* to Loki; Prometheus *pulls* from everyone; Grafana *pulls* from Loki + Prometheus. The only "push to store" hop is Vector→Loki; everything metric is pull.
-- **The three v4.89.1 deltas that bite:** (1) `/metrics` is **disabled by default** — set `FLEET_PROMETHEUS_BASIC_AUTH_DISABLE=true` or give creds to serve it at all; (2) the **fleet-init chown sidecar** must fix `/logs` ownership to `100:101` or Fleet won't write logs at all; (3) **policies aren't in the result log** — compliance-by-tier is built from mirrored *scheduled queries* (carrying the trust-tier marker) or the webhook path, because **per-label/team policy scoping is Premium**.
+- **The three v4.89.1 deltas that bite:** (1) `/metrics` is **disabled by default** — set `FLEET_PROMETHEUS_BASIC_AUTH_DISABLE=true` or give creds to serve it at all; (2) the **fleet-init chown sidecar** must fix `/logs` ownership to `100:101` or Fleet won't write logs at all; (3) **policies aren't in the result log** — compliance is built from mirrored *scheduled queries* (carrying the trust-tier marker) or the webhook path, because **per-label/team policy scoping is Premium**.
 - **Everything is code:** dashboards, data sources, and exporters are files in Git, provisioned on boot — lose the stack, `docker compose up`, and it's back.
 
 **See also across the encyclopedia:** [fleet-core](./03-fleet-core.md) · [containers & Docker](./02-containers-and-docker.md) · [TLS & PKI (Caddy)](./04-tls-and-pki.md) · [GitOps & CI/CD](./06-gitops-and-cicd.md) · [policy-as-code](./07-policy-as-code.md) · [automation & IR](./10-automation-and-ir.md) · [identity (Grafana SSO)](./09-identity-and-access.md) · [cross-cutting & trust model](./11-concepts-and-trust-model.md)

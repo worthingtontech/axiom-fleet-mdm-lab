@@ -73,8 +73,8 @@ Lab path: **`FLEET_SERVER_TLS=false` + Caddy terminates TLS**, drop the cert mou
 **Caddyfile** (mkcert leaf, transparent host-preserving proxy — passes osquery,
 live-query WS, and Apple/Windows MDM+SCEP unchanged):
 ```
-fleet.lab.example.com {
-    tls /etc/caddy/fleet.lab.example.com+3.pem /etc/caddy/fleet.lab.example.com+3-key.pem
+fleet.axiom.lab {
+    tls /etc/caddy/fleet.axiom.lab+3.pem /etc/caddy/fleet.axiom.lab+3-key.pem
     reverse_proxy 127.0.0.1:1337
 }
 ```
@@ -83,7 +83,7 @@ fleet.lab.example.com {
 ```
 mkcert -install
 mkcert -CAROOT            # location of rootCA.pem — the file to feed fleetd/VMs
-mkcert fleet.lab.example.com 192.168.1.50 localhost 127.0.0.1
+mkcert fleet.axiom.lab 192.168.1.50 localhost 127.0.0.1
 ```
 mkcert's root signs the leaf directly (no intermediate) → leaf-on-server +
 rootCA.pem-on-client is a valid chain. Trust rootCA.pem on each VM
@@ -98,7 +98,7 @@ on Windows). Sources: [certificates-in-fleetd](https://fleetdm.com/guides/certif
 On **Fleet Free the token must be a GLOBAL ADMIN** — the dedicated "GitOps"
 API-only role is Premium (a lesser role 403s).
 ```bash
-export FLEET_URL="https://fleet.lab.example.com"
+export FLEET_URL="https://fleet.axiom.lab"
 export FLEET_API_TOKEN="<global-admin-api-token>"
 export FLEET_GLOBAL_ENROLL_SECRET="<random-secret>"
 fleetctl gitops -f default.yml -f teams/no-team.yml --dry-run   # validate/preview
@@ -118,7 +118,7 @@ fleetctl gitops -f default.yml -f teams/no-team.yml             # apply
 ```bash
 # Linux .deb (no Docker needed):
 fleetctl package --type deb --fleet-desktop \
-  --fleet-url=https://fleet.lab.example.com \
+  --fleet-url=https://fleet.axiom.lab \
   --enroll-secret=<ENROLL_SECRET> \
   --fleet-certificate="$(mkcert -CAROOT)/rootCA.pem"
 # Windows .msi — requires Docker running:
@@ -130,7 +130,7 @@ fleetctl package --type msi --fleet-desktop --fleet-url=… --enroll-secret=… 
   so even if the VM trusts your mkcert CA, osquery enrollment fails unless the CA
   is baked into the package. `--insecure` disables validation (dev only).
 - **There is no `--fleet-tls` flag** (don't invent it). Diagnose with:
-  `fleetctl debug connection --fleet-certificate ./rootCA.pem https://fleet.lab.example.com`
+  `fleetctl debug connection --fleet-certificate ./rootCA.pem https://fleet.axiom.lab`
 - Supported `--type`: `deb rpm msi pkg pkg.tar.zst`.
 
 ### Enroll secrets
@@ -196,7 +196,7 @@ fragment the single pane of glass for no benefit.
 **Contradictions resolved**
 1. Custom OS settings at "No team" = **Free** (handbook YAML authoritative); label-scoping of those profiles is Premium. Verify in-product (rated medium confidence).
 2. Disk-encryption + OS-update enforcement = **Premium** (an earlier automated pricing-table read wrongly showed Free). Don't trust the marketing pricing page.
-3. **The "team emulation via labels + enroll secrets" premise is refuted** — per-policy label scoping is Premium & silently ignored on Free; enroll secrets don't segment. *Single most important planning correction* → see [ADR-0003](../adr/0003-free-tier-tiering.md).
+3. **The "team emulation via labels + enroll secrets" premise is refuted** — per-policy label scoping is Premium & silently ignored on Free; enroll secrets don't segment. *Single most important planning correction* → see [ADR-0003](../adr/0003-free-tier-trust-tiering.md).
 4. Policy-webhook payload has **two coexisting shapes** in docs (classic `timestamp/policy/hosts` vs per-host `host_id/failing_policies[]`). **Curl-test what v4.89.1 actually emits** before wiring the receiver.
 
 **Training-data deltas (what a 2024/2025 assistant gets wrong)**

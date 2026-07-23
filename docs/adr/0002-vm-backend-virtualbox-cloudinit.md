@@ -1,6 +1,6 @@
 # ADR-0002: VirtualBox + cloud-init (NoCloud) as the VM backend
 
-- **Status:** Proposed (Phase 0)
+- **Status:** Accepted (Phase 0 — VirtualBox + cloud-init backend in use; enclave-01/canary-01 provisioned this way)
 - **Date:** 2026-07-20
 - **Phase:** 0 — Recon & plan
 - **Related:** ADR-0001 (topology)

@@ -18,7 +18,7 @@ This layer is the **trust plumbing** that sits underneath everything the agents 
 sequenceDiagram
     participant Cl as Client (fleetd / browser / fleetctl)
     participant Ca as Caddy :443 (server)
-    Cl->>Ca: TCP SYN → ClientHello (SNI=fleet.lab.example.com, ECDHE share, ciphers)
+    Cl->>Ca: TCP SYN → ClientHello (SNI=fleet.axiom.lab, ECDHE share, ciphers)
     Ca->>Cl: ServerHello (TLS 1.3) + leaf cert chain + ECDHE share
     Note over Cl: validate chain to trusted root,<br/>check hostname ∈ cert SAN
     Cl->>Ca: (keys derived) encrypted HTTP request
@@ -36,7 +36,7 @@ sequenceDiagram
 
 - **In one line** — a CA is an entity whose signature on a certificate means "I vouch that this public key belongs to this name," and whose own certificate you have pre-installed as a *trust anchor*.
 - **What it actually is** — a keypair plus a policy. The CA holds a private signing key; anything it signs, a client that trusts the CA's public certificate will accept. Trust is **not** derived from anywhere — it is *bootstrapped* by you physically placing the CA's certificate into a trust store ahead of time. Analogy: a passport-issuing authority. You trust a passport not because you verified the holder, but because you already decided to trust the government that stamped it, and that stamp is unforgeable. A **public** CA (Let's Encrypt, DigiCert) is one whose root ships pre-installed in every OS and browser; a **private/local** CA (ours) is one you install yourself on exactly the machines that need it.
-- **Why it's in Project AXIOM** — the lab is $0 and offline-friendly, running on invented hostnames like `fleet.lab.example.com` that no public CA will ever sign (they only sign domains you control and can prove via ACME). So AXIOM runs **its own** CA via [mkcert](#mkcert--our-0-local-ca). That CA becomes the single trust anchor every agent, browser, and `fleetctl` is taught to trust.
+- **Why it's in Project AXIOM** — the lab is $0 and offline-friendly, running on invented hostnames like `fleet.axiom.lab` that no public CA will ever sign (they only sign domains you control and can prove via ACME). So AXIOM runs **its own** CA via [mkcert](#mkcert--our-0-local-ca). That CA becomes the single trust anchor every agent, browser, and `fleetctl` is taught to trust.
 - **Where it sits in the stack** — the root of the PKI layer. Below it: nothing (it *is* the anchor). Above/beside it: the leaf certificate it signs (held by Caddy) and the trust stores it gets installed into (OS stores, osquery's `certs.pem`).
 - **How it works** — the CA signs a certificate by hashing its contents (name, public key, validity, SANs) and producing a signature over that hash with its private key (RSA or ECDSA). A verifier recomputes the same hash and checks it against the signature using the CA's *public* key — proving the CA signed exactly these bytes and nothing was altered. (The familiar "decrypt the signature with the public key" phrasing is only literally true for RSA; ECDSA verifies by a different computation, but the guarantee is identical.) The CA's private key never leaves the machine; only its public certificate is distributed.
 - **Who talks to it, and how** — this is the counter-intuitive part: **in this lab, nothing makes a network call to the CA.** A local mkcert CA is an *offline signer*, not a running service.
@@ -70,7 +70,7 @@ flowchart LR
 
 ```mermaid
 flowchart RL
-    LEAF["Leaf: fleet.lab.example.com<br/>(held by Caddy)"] -->|signed by| ROOT["Root CA: mkcert<br/>(in client trust store)"]
+    LEAF["Leaf: fleet.axiom.lab<br/>(held by Caddy)"] -->|signed by| ROOT["Root CA: mkcert<br/>(in client trust store)"]
     ROOT -.->|"self-signed (anchor)"| ROOT
 ```
 
@@ -92,7 +92,7 @@ flowchart RL
 
 - **In one line** — an X.509 certificate is the signed data structure that binds a public key to one or more names, and the SAN field is the modern, authoritative list of names the cert is valid for.
 - **What it actually is** — a standardized (RFC 5280) blob containing: subject and issuer names, the subject's **public key**, a validity window (notBefore/notAfter), a serial number, key-usage constraints, and the **Subject Alternative Name** extension — a list of DNS names and/or IP addresses the certificate covers. The legacy Common Name (CN) field is effectively **dead for hostname matching**: modern clients (browsers since ~2017, the Go TLS stack that Fleet/`fleetctl` use, and osquery's OpenSSL-based verification) match the requested hostname against the **SAN** and ignore CN whenever a SAN is present — and mkcert always emits one. Analogy: an ID card whose "also known as" list must contain the exact name you're checking, or the guard rejects it even if the card is otherwise genuine.
-- **Why it's in Project AXIOM** — clients reach Fleet by different names depending on where they are: the DNS name `fleet.lab.example.com`, the host's LAN IP (e.g. `192.168.1.50`), and sometimes `localhost`/`127.0.0.1` from the host itself. **Every** name a client might use in its `--fleet-url` or browser bar must appear in the leaf's SAN, or that client's handshake fails hostname verification — even though the signature is perfectly valid.
+- **Why it's in Project AXIOM** — clients reach Fleet by different names depending on where they are: the DNS name `fleet.axiom.lab`, the host's LAN IP (e.g. `192.168.1.50`), and sometimes `localhost`/`127.0.0.1` from the host itself. **Every** name a client might use in its `--fleet-url` or browser bar must appear in the leaf's SAN, or that client's handshake fails hostname verification — even though the signature is perfectly valid.
 - **Where it sits in the stack** — the data object at the heart of the PKI layer. It's produced by [mkcert](#mkcert--our-0-local-ca), presented by [Caddy](#caddy--reverse-proxy--tls-terminator), validated by every TLS client.
 - **How it works** — mkcert stamps the SAN list from its command-line arguments into the leaf. At validation, the client takes the hostname it *intended* to connect to (from the URL, carried in SNI) and checks it against the SAN entries: DNS names match DNS-type SANs (with optional wildcard), IP literals match IP-type SANs. A miss = `x509: certificate is valid for A, B, not C`.
 - **Who talks to it, and how** — the certificate is passive data; it is *presented* by Caddy in the handshake and *inspected* by the client.
@@ -100,16 +100,16 @@ flowchart RL
 ```mermaid
 flowchart LR
     subgraph Leaf cert SAN
-      S1[DNS: fleet.lab.example.com]
+      S1[DNS: fleet.axiom.lab]
       S2[IP: 192.168.1.50]
       S3[DNS: localhost]
       S4[IP: 127.0.0.1]
     end
-    C["Client connects to<br/>https://fleet.lab.example.com"] -->|"SNI name compared to SAN list"| S1
+    C["Client connects to<br/>https://fleet.axiom.lab"] -->|"SNI name compared to SAN list"| S1
 ```
 
   The lab's mkcert invocation therefore lists every name up front:
-  `mkcert fleet.lab.example.com 192.168.1.50 localhost 127.0.0.1` → produces `fleet.lab.example.com+3.pem` (the `+3` = three extra SANs beyond the first).
+  `mkcert fleet.axiom.lab 192.168.1.50 localhost 127.0.0.1` → produces `fleet.axiom.lab+3.pem` (the `+3` = three extra SANs beyond the first).
 - **Free vs Premium** — not Fleet-tiered.
 - **Gotchas / myth-busting** — (1) **CN is not checked** — putting the hostname only in CN and omitting SAN yields "certificate has no SAN" or a hard hostname-mismatch failure. (2) `FLEET_SERVER_URL` and the SANs must line up: MDM enrollment and osquery both use the URL's hostname for SNI, so a URL name missing from the SAN silently breaks enrollment. (3) IPs must be IP-type SANs, not DNS-type — listing `192.168.1.50` as a DNS name won't match an IP connection. (4) Adding a new node name later means **re-issuing the leaf** (regenerate with mkcert and reload Caddy); you can't append a SAN to an existing cert.
 - **See also** — [mkcert](#mkcert--our-0-local-ca) · [Caddy](#caddy--reverse-proxy--tls-terminator) · [TLS/HTTPS](#tls--https--what-it-actually-guarantees) · [`FLEET_SERVER_URL` & Fleet core config](./03-fleet-core.md)
@@ -127,7 +127,7 @@ flowchart LR
   |---|---|
   | `mkcert -install` | creates the CA (first run) and adds `rootCA.pem` to the **host's** OS + NSS trust stores |
   | `mkcert -CAROOT` | prints the dir holding `rootCA.pem` (public) and `rootCA-key.pem` (secret signer) |
-  | `mkcert fleet.lab.example.com 192.168.1.50 localhost 127.0.0.1` | generates the leaf `…+3.pem` and key `…+3-key.pem`, signed by the CA |
+  | `mkcert fleet.axiom.lab 192.168.1.50 localhost 127.0.0.1` | generates the leaf `…+3.pem` and key `…+3-key.pem`, signed by the CA |
 
   The leaf + leaf-key go to Caddy. The **`rootCA.pem`** is the file that must be distributed to every *other* machine and into the fleetd package.
 - **Who talks to it, and how** — mkcert is a **build-time CLI**, not a service. Nobody connects to it. It writes files; humans/scripts move those files.
@@ -183,7 +183,7 @@ flowchart LR
 
   If only the blue box (OS store) trusts mkcert, orbit + Fleet Desktop connect but osqueryd fails. Both boxes must trust it.
 - **Free vs Premium** — free; this is agent architecture, not a licensed feature.
-- **Gotchas / myth-busting** — (1) "I trusted the CA on the VM, why is osquery still failing?" — because osqueryd never reads the OS store; you trusted the wrong anchor. (2) The fix is **not** more OS-trust work; it's baking the CA into the package via `--fleet-certificate`. (3) `--insecure` on `fleetctl package` disables validation for both anchors — a dev-only crutch that hides the real fix. (4) Diagnose with `fleetctl debug connection --fleet-certificate ./rootCA.pem https://fleet.lab.example.com`, which exercises the osquery-style path specifically.
+- **Gotchas / myth-busting** — (1) "I trusted the CA on the VM, why is osquery still failing?" — because osqueryd never reads the OS store; you trusted the wrong anchor. (2) The fix is **not** more OS-trust work; it's baking the CA into the package via `--fleet-certificate`. (3) `--insecure` on `fleetctl package` disables validation for both anchors — a dev-only crutch that hides the real fix. (4) Diagnose with `fleetctl debug connection --fleet-certificate ./rootCA.pem https://fleet.axiom.lab`, which exercises the osquery-style path specifically.
 - **See also** — [`--fleet-certificate`](#--fleet-certificate--baking-the-ca-into-the-agent-package) · [The fleetd agent (orbit/osqueryd/Fleet Desktop)](./03-fleet-core.md) · [Zero-touch CA trust in cloud-init/unattend](./01-host-hypervisor-virtualization.md) · [mkcert](#mkcert--our-0-local-ca)
 
 ---
@@ -197,7 +197,7 @@ flowchart LR
 - **How it works** — the canonical build:
   ```bash
   fleetctl package --type deb --fleet-desktop \
-    --fleet-url=https://fleet.lab.example.com \
+    --fleet-url=https://fleet.axiom.lab \
     --enroll-secret=<ENROLL_SECRET> \
     --fleet-certificate="$(mkcert -CAROOT)/rootCA.pem"
   ```
@@ -231,12 +231,16 @@ sequenceDiagram
 - **Where it sits in the stack** — the **edge** of the `axiom-core` container stack. Above/outside it: all external clients (VMs' fleetd, browsers, `fleetctl`, MDM devices). Below/behind it: the Fleet container at `fleet:1337` on the Docker bridge. Beside it: MySQL and Redis, which it never touches (only Fleet does).
 - **How it works** — the entire lab Caddyfile:
   ```
-  fleet.lab.example.com {
-      tls /etc/caddy/fleet.lab.example.com+3.pem /etc/caddy/fleet.lab.example.com+3-key.pem
+  http:// {
+      redir https://{host}{uri} permanent
+  }
+
+  fleet.axiom.lab {
+      tls /etc/caddy/certs/fleet.axiom.lab.pem /etc/caddy/certs/fleet.axiom.lab-key.pem
       reverse_proxy fleet:1337
   }
   ```
-  The `tls` directive pins the **explicit mkcert leaf + key** (so Caddy does **not** try to auto-provision a Let's Encrypt cert — there's no public domain and no ACME here). The `reverse_proxy` target is the **service name `fleet`** (resolved by Compose's embedded DNS to the Fleet container's bridge IP), *not* `127.0.0.1` — inside the Caddy container, loopback is Caddy itself, and Fleet's `1337` is never published to the host (see [Docker networking](./02-containers-and-docker.md)). By default Caddy's proxy is **transparent**: it preserves the `Host` header and automatically injects `X-Forwarded-For`/`X-Forwarded-Proto`, which is exactly what osquery TLS, the live-query WebSocket, and Apple/Windows MDM+SCEP need to work unchanged.
+  The `tls` directive pins the **explicit mkcert leaf + key** (so Caddy does **not** try to auto-provision a Let's Encrypt cert — there's no public domain and no ACME here). Note the cert paths are **stable, non-suffixed** filenames under a `certs/` subpath: `infra/tls/make-certs.ps1` deliberately renames off mkcert's default `+N` suffix (e.g. `fleet.axiom.lab+3.pem` → `fleet.axiom.lab.pem`), so the Caddyfile path never changes even when the SAN count does. The real Caddyfile also declares the explicit `http:// { redir https://{host}{uri} permanent }` block shown above, which permanently redirects any plaintext HTTP to HTTPS. The `reverse_proxy` target is the **service name `fleet`** (resolved by Compose's embedded DNS to the Fleet container's bridge IP), *not* `127.0.0.1` — inside the Caddy container, loopback is Caddy itself, and Fleet's `1337` is never published to the host (see [Docker networking](./02-containers-and-docker.md)). By default Caddy's proxy is **transparent**: it preserves the `Host` header and automatically injects `X-Forwarded-For`/`X-Forwarded-Proto`, which is exactly what osquery TLS, the live-query WebSocket, and Apple/Windows MDM+SCEP need to work unchanged.
 - **Who talks to it, and how** — Caddy is the hub every external interaction funnels through:
 
 ```mermaid
@@ -245,7 +249,7 @@ sequenceDiagram
     participant Ca as Caddy :443
     participant F as Fleet :1337
     participant DB as MySQL :3306 / Redis :6379
-    Cl->>Ca: HTTPS request (TLS, Host: fleet.lab.example.com)
+    Cl->>Ca: HTTPS request (TLS, Host: fleet.axiom.lab)
     Note over Ca: terminate TLS with mkcert leaf
     Ca->>F: plain HTTP (Host preserved, X-Forwarded-Proto: https)
     F->>DB: read/write host vitals, sessions, MDM assets
@@ -253,9 +257,9 @@ sequenceDiagram
     Ca-->>Cl: HTTPS response (re-encrypted)
 ```
 
-  Concretely: `fleetd` on `gpu-node-1` initiates an outbound **HTTPS POST** to `fleet.lab.example.com:443` → Caddy terminates TLS → forwards **plain HTTP** to `fleet:1337` (by service name over the bridge) → Fleet writes host vitals to MySQL and publishes live-query state to Redis → the response re-encrypts on the way back out.
+  Concretely: `fleetd` on `gpu-node-1` initiates an outbound **HTTPS POST** to `fleet.axiom.lab:443` → Caddy terminates TLS → forwards **plain HTTP** to `fleet:1337` (by service name over the bridge) → Fleet writes host vitals to MySQL and publishes live-query state to Redis → the response re-encrypts on the way back out.
 - **Free vs Premium** — Caddy is independent OSS; no Fleet licensing involved.
-- **Gotchas / myth-busting** — (1) Caddy would normally fetch a free Let's Encrypt cert automatically, but the explicit `tls <cert> <key>` directive **disables** that — essential, since public ACME can't validate a private hostname. (2) The reverse-proxy target is the Fleet **internal HTTP** port `1337` reached by **service name** `fleet` on the bridge, not 443, not TLS, and not `127.0.0.1`. (3) Because Fleet trusts forwarded headers only from configured proxies, Caddy's source IP must be covered by `FLEET_SERVER_TRUSTED_PROXIES` — and since Caddy is a *sibling container*, Fleet sees its **Docker-bridge IP**, not loopback, so this value is the compose network's subnet (e.g. `172.18.0.0/16`; confirm with `docker network inspect`), **not** `127.0.0.1`. Get it wrong and Fleet ignores `X-Forwarded-For`, logging Caddy's IP instead of the agent's real LAN IP. (4) The live-query WebSocket also needs `FLEET_SERVER_WEBSOCKETS_ALLOW_UNSAFE_ORIGIN=true`; a passing agent check does **not** prove the UI's WS path works through the proxy — test live query in the browser explicitly.
+- **Gotchas / myth-busting** — (1) Caddy would normally fetch a free Let's Encrypt cert automatically, but the explicit `tls <cert> <key>` directive **disables** that — essential, since public ACME can't validate a private hostname. (2) The reverse-proxy target is the Fleet **internal HTTP** port `1337` reached by **service name** `fleet` on the bridge, not 443, not TLS, and not `127.0.0.1`. (3) Because Fleet trusts forwarded headers only from configured proxies, Caddy's source IP must be covered by `FLEET_SERVER_TRUSTED_PROXIES` — and since Caddy is a *sibling container*, Fleet sees its **Docker-bridge IP**, not loopback, so this value is the compose network's **pinned** subnet `172.28.0.0/16` — a fixed, known value in this lab (set explicitly in `networks.default.ipam`, not merely illustrative, so `FLEET_SERVER_TRUSTED_PROXIES` must match it; confirm with `docker network inspect`), **not** `127.0.0.1`. Get it wrong and Fleet ignores `X-Forwarded-For`, logging Caddy's IP instead of the agent's real LAN IP. (4) The live-query WebSocket also needs `FLEET_SERVER_WEBSOCKETS_ALLOW_UNSAFE_ORIGIN=true`; a passing agent check does **not** prove the UI's WS path works through the proxy — test live query in the browser explicitly.
 - **See also** — [TLS termination](#tls-termination--why-fleet-serves-plain-http-behind-caddy) · [The axiom-core Docker stack](./02-containers-and-docker.md) · [Fleet server config & ports](./03-fleet-core.md) · [Live query & the WebSocket](./08-telemetry-and-observability.md)
 
 ---
@@ -270,7 +274,7 @@ sequenceDiagram
   | Var | Value | Why |
   |---|---|---|
   | `FLEET_SERVER_TLS` | `false` | Fleet listens plain HTTP; Caddy owns TLS |
-  | `FLEET_SERVER_URL` | `https://fleet.lab.example.com` | the **external** name — MDM/enroll redirects and SAN checks key off this |
+  | `FLEET_SERVER_URL` | `https://fleet.axiom.lab` | the **external** name — MDM/enroll redirects and SAN checks key off this |
   | `FLEET_SERVER_TRUSTED_PROXIES` | Docker bridge subnet (compose net CIDR) | tells Fleet how to read the real client IP from Caddy's `X-Forwarded-For` — Caddy is a sibling container, so its source is a **bridge IP**, not loopback |
   | `FLEET_SERVER_WEBSOCKETS_ALLOW_UNSAFE_ORIGIN` | `true` | live-query WS works when the Origin is the proxy |
   | `FLEET_SERVER_PRIVATE_KEY` | `openssl rand -base64 32` | **unrelated to TLS** — symmetric key that encrypts MDM assets and is what *enables* MDM |
