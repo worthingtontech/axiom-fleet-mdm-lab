@@ -16,7 +16,8 @@
 
   Claude is the teammate that does the first-draft toil; the engineer keeps the
   judgement and the merge button. Runnable locally (needs the `claude` CLI signed in);
-  wrapped by .github/workflows/claude-remediate.yml on CI (ANTHROPIC_API_KEY).
+  wrapped by .github/workflows/claude-remediate.yml on CI (CLAUDE_CODE_OAUTH_TOKEN
+  from a Pro/Max subscription, or ANTHROPIC_API_KEY for API billing).
 
   Design + a worked example: gitops/remediate/README.md.
 
@@ -94,7 +95,7 @@ Keep it tight and actionable. No preamble.
 "@
 
     $draft = & $claude.Source -p $prompt --output-format text 2>&1 | Out-String
-    if ([string]::IsNullOrWhiteSpace($draft)) { $draft = "_(claude returned no output; check CLI auth / ANTHROPIC_API_KEY)_" }
+    if ([string]::IsNullOrWhiteSpace($draft)) { $draft = "_(claude returned no output; check CLI auth -- CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)_" }
 
     $file = Join-Path $draftDir "$slug.md"
     $header = "# Remediation draft: $($p.name)`n`n" +

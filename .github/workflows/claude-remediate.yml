@@ -9,7 +9,8 @@
 #
 # Runs on the SELF-HOSTED runner (needs LAN access to fleet.axiom.lab; same trust
 # model as apply/drift/promote, ADR-0007). DISABLED until the runner is registered
-# and ANTHROPIC_API_KEY is set as a repo secret.
+# and a Claude auth secret is set: CLAUDE_CODE_OAUTH_TOKEN from a Pro/Max
+# subscription (`claude setup-token`, $0), or ANTHROPIC_API_KEY for API billing.
 # =============================================================================
 name: claude-remediate
 
@@ -42,8 +43,11 @@ jobs:
       - name: Triage failing policies + draft remediations (Claude)
         shell: powershell
         env:
-          # The claude CLI / SDK reads this. Set it as a repo secret.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Auth for the headless `claude` CLI. A subscription (Pro/Max) OAuth token
+          # from `claude setup-token` keeps the lab $0 (no API billing). Set it as a
+          # repo secret. To bill the API instead, swap this line for:
+          #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Least-privilege Fleet API token (the api-only observer works for reads).
           FLEET_API_TOKEN: ${{ secrets.FLEET_EXPORTER_TOKEN }}
           GH_TOKEN: ${{ github.token }}
