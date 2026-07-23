@@ -53,8 +53,9 @@ param(
     # Independent of -Tier (a host can be standard-tier AND canary).
     [switch]$Canary,
 
-    [string]$DebPath = 'C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\provisioning\build\build\fleet-osquery_1.58.0_amd64.deb',
-    [string]$RootCaPath = 'C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\infra\tls\rootCA.pem',
+    # Repo-relative defaults (this script lives in provisioning\linux\) -- override as needed.
+    [string]$DebPath = (Join-Path $PSScriptRoot '..\build\build\fleet-osquery_1.58.0_amd64.deb'),
+    [string]$RootCaPath = (Join-Path $PSScriptRoot '..\..\infra\tls\rootCA.pem'),
     [string]$VmDir = 'C:\vms'
 )
 
@@ -287,7 +288,7 @@ Invoke-VBox -VBoxArgs @('startvm', $Name, '--type', 'headless') | Out-Null
 # ----------------------------------------------------------------------------
 # Guidance
 # ----------------------------------------------------------------------------
-$fleetctl = 'C:\Users\Sherlock\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe'
+$fleetctl = Join-Path $env:USERPROFILE '.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe'
 Write-Host ""
 Write-Host "VM '$Name' booted headless." -ForegroundColor Green
 Write-Host ""

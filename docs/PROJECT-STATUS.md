@@ -9,7 +9,7 @@
 | **Reviewed** | 2026-07-22 |
 | **Source of truth** | This document is the reviewer-facing rollup. The live engineering journal is [`../LAB_STATE.md`](../LAB_STATE.md); every architecture choice is an ADR under [`adr/`](adr/). |
 
-> **How to read the status column.** *Done* = every acceptance check in [`FLEETDM_LAB_PROMPT.md`](../FLEETDM_LAB_PROMPT.md) passed with real output pasted into `LAB_STATE.md`. *Partial* = the core is built and proven but at least one acceptance sub-item is genuinely open. *Pending* = not started (no directory / no artifacts). *Blocked* = built but cannot be exercised until an operator/hardware dependency clears.
+> **How to read the status column.** *Done* = every acceptance check in [the origin prompt](origin-prompt.md) passed with real output pasted into `LAB_STATE.md`. *Partial* = the core is built and proven but at least one acceptance sub-item is genuinely open. *Pending* = not started (no directory / no artifacts). *Blocked* = built but cannot be exercised until an operator/hardware dependency clears.
 >
 > The launching brief rounds to "Phases 0–5 done." That is accurate for **0, 1, 4, 5**; Phases **2 and 3** are ~90 % complete and honestly carried as **Partial** here (and unchecked in `LAB_STATE.md`), because each has one open acceptance item — the Windows client enroll last-mile, and the live apply/drift halves that need the self-hosted runner.
 
@@ -202,7 +202,7 @@
 **Pending (portfolio pre-flight, from the public-readiness audit):**
 - Write the root README as the lead artifact (scenario, architecture diagram, honest PROVEN/AUTHORED/DEFERRED scope table, quickstart, skills-to-JD map, screenshots, doc links; frame `LAB_STATE.md` as the internal journal).
 - Fix 4 broken internal markdown links to real filenames (`LAB_STATE.md` ×2, `adr/0009` ×1, the research brief ×1).
-- Resolve top-level [`FLEETDM_LAB_PROMPT.md`](../FLEETDM_LAB_PROMPT.md) (move to `docs/`, scrub the personal `C:\Users\Sherlock\…` path, reframe as an appendix).
+- ~~Resolve the top-level origin prompt~~ — ✅ done 2026-07-23: moved to [`docs/origin-prompt.md`](origin-prompt.md), personal path scrubbed, reframed as an appendix.
 - Scrub/parameterize personal absolute paths in 6 tracked provisioning/runbook files.
 - Neutralize the 3 inert scheduled workflows (comment out `schedule:` or add an owner guard) so the public Actions tab stays clean; keep `pr-ci.yml` + `gitleaks.yml` active.
 - Reconcile doc-staleness nits (`enclave` vs `high-trust-enclave` label; 22 vs 23 policies; 5 GB vs 6 GB Windows RAM; `LAB_STATE` "Running now").

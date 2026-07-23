@@ -3,7 +3,7 @@
 **Repo:** `github.com/worthingtontech/axiom-fleet-mdm-lab` (personal account `worthingtontech`, not an org yet)
 **License:** Apache-2.0 · **Current visibility:** PRIVATE · **Goal:** publish as a portfolio artifact for an IT / Client Platform Engineer application.
 
-This is an **ordered, gated runbook**. Do the phases top to bottom. Each gate has a hard pass/fail condition — do **not** flip visibility until every command in Phase 1 passes and every item in Phase 2 (must-fix) is done. Commands are given for **PowerShell** (primary shell) and the **`gh`** CLI. Run them from the repo root: `cd C:\Users\Sherlock\Documents\Code\fleetDM_fullLab`.
+This is an **ordered, gated runbook**. Do the phases top to bottom. Each gate has a hard pass/fail condition — do **not** flip visibility until every command in Phase 1 passes and every item in Phase 2 (must-fix) is done. Commands are given for **PowerShell** (primary shell) and the **`gh`** CLI. Run them from the repo root.
 
 ---
 
@@ -68,15 +68,17 @@ git check-ignore infra/.env infra/tls/rootCA.pem infra/tls/fleet.axiom.lab-key.p
 The lab is public-bound and must carry **no job-search, resume, or PII content** (per the lab/job-search split), and should not leak the OS username via absolute paths.
 
 ```powershell
-# Personal absolute paths (leaks OS username, non-portable)
-git grep -n "C:\\\\Users\\\\Sherlock"
+# Personal absolute paths (leak the OS username, non-portable) — expands to the
+# operator's actual username at run time:
+git grep -in "$env:USERNAME"
 
-# Real name / email / resume terms that must NOT be in a public lab repo
-git grep -niE "awperkins12|resume|curriculum vitae|clearance|TS/SCI|SATCOM"
+# Personal email / resume terms that must NOT be in a public lab repo
+# (substitute your own email's local part for <email-prefix>):
+git grep -niE "<email-prefix>|resume|curriculum vitae|clearance|TS/SCI"
 ```
 
 - The name **Aaron W. Perkins** is *expected and fine* in `LICENSE`/`NOTICE` (copyright attribution) — that is not PII in the leak sense.
-- Any hit for `C:\Users\Sherlock\...` is a **must-fix or must-label** (see Phase 2 / Phase 3).
+- Any hit for a personal `C:\Users\<username>\...` path is a **must-fix or must-label** (see Phase 2 / Phase 3).
 - Any hit for email, resume, or clearance terms is a **hard stop** — remove before flipping. This repo must never carry job-search content.
 
 > **Gate:** All of 1.1–1.4 pass → proceed. Otherwise fix and re-run the whole phase.
@@ -105,9 +107,13 @@ These come straight from the public-readiness audit. A portfolio repo is judged 
    - `docs/adr/0009-canary-progressive-rollout.md` L4 → `0006-gitops-cicd-architecture.md`
    - `docs/research/2026-07-20-phase0-1-fleet-brief.md` → `../adr/0003-free-tier-trust-tiering.md` (was `...-free-tier-tiering.md`)
 
-3. **Resolve `FLEETDM_LAB_PROMPT.md` at the repo root.** It is the AI mega-prompt ("Copy everything below into a fresh Claude Code session…") and would be the second file a visitor sees; it also embeds `C:\Users\Sherlock\...\axiom-fleet-lab`. Leading a job-application repo with the originating prompt undercuts the "I engineered this" narrative. **Move it to `docs/origin-prompt.md`, scrub the personal path, and reframe it as an appendix** (or remove it). Do not leave the raw build prompt greeting visitors at the root.
+3. **Resolve the origin prompt at the repo root — ✅ done 2026-07-23.** The AI master prompt was
+   moved to [`docs/origin-prompt.md`](origin-prompt.md), its personal path scrubbed, and reframed
+   as an appendix ("prompt-as-spec" is part of the story; the README leads). The root no longer
+   greets visitors with the raw build prompt.
 
-> **Gate:** README renders, all four links resolve, and the origin prompt is relocated/scrubbed → proceed. Re-run `git grep -n "C:\\Users\\Sherlock"` — the prompt file should no longer contribute a hit.
+> **Gate:** README renders, all four links resolve (✅ fixed 2026-07-23), and the origin prompt is
+> relocated/scrubbed (✅) → proceed. Re-run `git grep -in "$env:USERNAME"` — expect zero hits.
 
 ---
 
@@ -115,7 +121,10 @@ These come straight from the public-readiness audit. A portfolio repo is judged 
 
 Do these if time allows; none block visibility, but each raises the artifact's finish. Batch a few and commit before flipping so the public first-view is already clean.
 
-- **Parameterize / label the `C:\Users\Sherlock\...` defaults** in the 6 remaining tracked files (`provisioning/linux/new-linux-vm.ps1`, `provisioning/windows/new-windows-vm.ps1`, `provisioning/README.md`, `runbooks/ci-cd-setup.md`, `runbooks/enroll-windows.md`, and the relocated origin prompt). At minimum add a one-line "operator-specific default" note; ideally derive from `$env:USERPROFILE` / relative paths.
+- **Parameterize / label personal-path defaults — ✅ done 2026-07-23.** Provisioning-script
+  defaults now derive from `$PSScriptRoot` / `$env:USERPROFILE`, runbooks use repo-relative and
+  `%USERPROFILE%` paths, and the relocated origin prompt is scrubbed. The username sweep
+  (`git grep -in "$env:USERNAME"`) returns zero hits.
 - **Neutralize the 3 scheduled workflows so the public Actions tab stays clean.** `drift-detection.yml` (daily cron), `promote.yml` (6h cron), and `claude-remediate.yml` (weekday cron) all target the unregistered `[self-hosted, fleet-apply]` runner; once public their scheduled runs queue with no runner and read as amber/failing to a browser. **Comment out the `schedule:` triggers (keep `workflow_dispatch`)**, or guard with `if: github.repository_owner == 'worthingtontech'`. Same consideration for `apply.yml` (dispatch-only already, but still targets the self-hosted runner). **Keep `pr-ci.yml` and `gitleaks.yml` active — they run GitHub-hosted and pass.**
 - **Reconcile doc-staleness nits:** `enclave` vs `high-trust-enclave` label (ADR-0003); 22 vs 23 policy count (live tree has 23 incl. `canary-auditd` — align `compliance-matrix.md` + `test-plans.md`); 5GB vs 6GB Windows RAM (ADR-0001 vs provisioner default 6GB); `LAB_STATE.md` "Running now" lists only `enclave-01` though later sections enroll `gpu-node-1` and `canary-01`.
 - **Add 1–2 screenshots** (Fleet UI + a Grafana dashboard) to the README/docs — a platform-engineering portfolio benefits enormously from visible proof of the running telemetry/compliance dashboards. None exist today.
@@ -184,7 +193,7 @@ Open the repo in a **logged-out / incognito browser** (this is what a recruiter 
 - [ ] A couple of internal doc links resolve (e.g. a `docs/adr/000*` link and the compliance matrix).
 - [ ] **Actions tab is clean** — only `pr-ci` and `gitleaks` runs, no amber/failing self-hosted queue.
 - [ ] **No secret files are browsable** — spot-check that `infra/.env`, any `*.pem/*.key`, and fleetd packages are absent; only `infra/secrets.example.env` shows as a template.
-- [ ] No `C:\Users\Sherlock` visible in the rendered README or origin prompt.
+- [ ] No personal `C:\Users\<username>` path visible in the rendered README or origin prompt.
 - [ ] License shows as **Apache-2.0** in the repo sidebar.
 
 ---
@@ -222,18 +231,16 @@ Open the repo in a **logged-out / incognito browser** (this is what a recruiter 
 
 ---
 
-## Phase 9 — Link it on the job application
+## Phase 9 — Share it
 
-- **Primary link:** the repo root — `https://github.com/worthingtontech/axiom-fleet-mdm-lab`. The README is now the artifact; that URL is the whole pitch.
-- **On the résumé / application** (kept in the separate `anthropicJOB` repo per the lab/job-search split — never in this repo): add a "Selected project" line, e.g.
-  > **Project AXIOM — FleetDM MDM / GitOps / policy-as-code lab** · self-hosted Fleet, 23 policies as code with proven live break/fix, telemetry-gated canary progressive rollout, Loki/Prometheus/Grafana observability. `github.com/worthingtontech/axiom-fleet-mdm-lab`
-- **Deep-links for specific claims** (use these in a cover letter or interview follow-up to substantiate a skill without making the reader hunt):
+- **Primary link:** the repo root — `https://github.com/worthingtontech/axiom-fleet-mdm-lab`. The README is the artifact; that URL is the whole pitch.
+- **Deep-links for specific claims** (so a reader can substantiate a capability without hunting):
   - Progressive rollout / CI gating → `docs/adr/0009-canary-progressive-rollout.md` + the green promote PR.
   - Policy-as-code → `gitops/` + `docs/compliance-matrix.md`.
   - Architecture decisions → `docs/adr/`.
   - Security posture → `SECURITY.md`.
-- **Keep the mapping honest:** point interviewers at the README scope table. The "PROVEN LIVE" column is what you demoed end-to-end; the "AUTHORED / DEFERRED" columns show engineering judgment about scope under a $0 / no-Apple-hardware constraint — which reads as *maturity*, not as a gap.
-- **Do not** put any application, résumé, or clearance content into this repo at any point — it is public-bound. All job-search material stays in `anthropicJOB`.
+- **Keep the mapping honest:** point readers at the README scope table. The "Proven live" rows are what was demonstrated end-to-end; the "Authored / Deferred" rows show scope judgment under a $0 / no-Apple-hardware constraint — which reads as *maturity*, not as a gap.
+- **Do not** put personal-application content of any kind into this repo at any point — it is public. Notes on where and how the lab is referenced live outside this repository.
 
 ---
 

@@ -40,6 +40,15 @@ git log --all --diff-filter=A --pretty=format: --name-only \
 git check-ignore -v infra/.env infra/mdm/*.key infra/tls/*-key.pem           # -> each matches a rule
 ```
 
+## Plaintext lab passwords (deliberate, throwaway)
+
+Two plaintext credentials **are** committed, on purpose: the `axiom` user password in the Linux
+cloud-init templates and the Windows local-admin `P@ssw0rd!23` in
+`provisioning/windows/autounattend.xml` / `new-windows-vm.ps1`, each labeled **LAB DEFAULT** in-file.
+They gate only disposable, LAN-only, NAT-isolated VMs that are destroyed and reprovisioned freely —
+they are provisioning parameters, not real credentials, and nothing outside the lab accepts them.
+(Real credentials — enroll secrets, tokens, keys — follow the rules above and never land in Git.)
+
 ## Rebuild-from-Git contract
 
 Because secrets are regenerated, a fresh clone is stood up with:

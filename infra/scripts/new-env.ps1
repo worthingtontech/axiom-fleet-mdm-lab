@@ -88,9 +88,12 @@ $content = Get-Content -LiteralPath $ExamplePath -Raw
 # twice in the template (MYSQL_PASSWORD + FLEET_MYSQL_PASSWORD) and
 # String.Replace substitutes every occurrence with the same value.
 $secrets = @(
-    @{ Token = '__GENERATE_FLEET_SERVER_PRIVATE_KEY__'; Bytes = 32; Label = 'FLEET_SERVER_PRIVATE_KEY (32 random bytes, base64)' },
-    @{ Token = '__GENERATE_MYSQL_ROOT_PASSWORD__';      Bytes = 24; Label = 'MYSQL_ROOT_PASSWORD (24 random bytes, base64)' },
-    @{ Token = '__GENERATE_MYSQL_FLEET_PASSWORD__';     Bytes = 24; Label = 'MYSQL_PASSWORD + FLEET_MYSQL_PASSWORD (shared value)' }
+    @{ Token = '__GENERATE_FLEET_SERVER_PRIVATE_KEY__';      Bytes = 32; Label = 'FLEET_SERVER_PRIVATE_KEY (32 random bytes, base64)' },
+    @{ Token = '__GENERATE_MYSQL_ROOT_PASSWORD__';           Bytes = 24; Label = 'MYSQL_ROOT_PASSWORD (24 random bytes, base64)' },
+    @{ Token = '__GENERATE_MYSQL_FLEET_PASSWORD__';          Bytes = 24; Label = 'MYSQL_PASSWORD + FLEET_MYSQL_PASSWORD (shared value)' },
+    @{ Token = '__GENERATE_FLEET_PROMETHEUS_PASSWORD__';     Bytes = 24; Label = 'FLEET_PROMETHEUS_BASIC_AUTH_PASSWORD (24 random bytes, base64)' },
+    @{ Token = '__GENERATE_GRAFANA_ADMIN_PASSWORD__';        Bytes = 24; Label = 'GRAFANA_ADMIN_PASSWORD (24 random bytes, base64)' },
+    @{ Token = '__GENERATE_FLEET_EXPORTER_PASSWORD__';       Bytes = 24; Label = 'FLEET_EXPORTER_PASSWORD (24 random bytes, base64)' }
 )
 
 $missingTokens = @()

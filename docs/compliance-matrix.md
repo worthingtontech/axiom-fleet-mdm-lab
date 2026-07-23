@@ -1,8 +1,9 @@
 # Project AXIOM -- Policy-as-Code Compliance Matrix
 
-This matrix maps the 22 hand-authored Fleet policies (see `gitops/default.yml`, top-level
-`policies:` key) to their CIS benchmark controls, MITRE ATT&CK references, osquery tables, and
-lab test posture. Fleet **FREE** v4.89.1.
+This matrix maps the 23 hand-authored Fleet policies (see `gitops/default.yml` — 22 inline under
+the top-level `policies:` key plus the canary-scoped rollout policy referenced from
+`lib/linux/policies/canary-auditd.yml`, ADR-0009) to their CIS benchmark controls, MITRE ATT&CK
+references, osquery tables, and lab test posture. Fleet **FREE** v4.89.1.
 
 ## Why hand-mapping (the free-tier answer)
 
@@ -30,6 +31,10 @@ on free tier** (it only gates Premium features).
   so on standard hosts (which lack that sentinel file) the query returns a row and the policy
   **auto-passes**; only elevated hosts are actually evaluated. The sentinel is planted by the
   elevated cloud-init template and also drives the `high-trust-enclave` dynamic label.
+- **Canary self-scoping (same lever, applied to rollout).** The `linux-canary-auditd` policy
+  self-scopes on `/etc/axiom/canary`, so only the canary cohort is graded until the control passes
+  the telemetry soak gate and is promoted fleet-wide ([ADR-0009](adr/0009-canary-progressive-rollout.md),
+  `gitops/promote/promote.ps1`).
 - **Platform pinning is mandatory.** Every policy carries `platform:` (`linux` / `darwin` /
   `windows`). This is a free-tier osquery scheduling constraint: without it, a macOS/Windows query
   would be scheduled onto the Ubuntu hosts, hit nonexistent tables, error, and **false-FAIL**.
@@ -66,6 +71,7 @@ on free tier** (it only gates Premium features).
 | enclave-weights-cache-fim-canary | AXIOM enclave -- weights-cache FIM canary unchanged | linux | enclave | N/A (MITRE ATT&CK) | - | T1565.001 | Y | yes | file, hash | enrolled-verified | Self-scopes on /etc/axiom/tier.d/elevated so standard hosts auto-pass; canary seeded byte-exactly by the elevated cloud-init (sha256 pinned). **Proven green->red->green live** (the headline demo). |
 | enclave-no-removable-media | AXIOM enclave -- no removable/USB media mounted | linux | enclave | N/A (MITRE ATT&CK) | - | T1091, T1052.001, M1034 | Y | yes | file, mounts | enrolled-verified | Self-scopes to elevated. Negative case exercised via a tmpfs mount under /media (see test-plans). PASSES live. |
 | enclave-aide-installed | AXIOM enclave -- AIDE host FIM installed (elevated bar) | linux | enclave | CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0 | 6.1.x | M1047 | Y | yes | file, deb_packages | enrolled-verified | Self-scopes to elevated (elevated bar). aide installed on enclave-01 via cloud-init (--no-install-recommends, to avoid postfix opening :25). PASSES live. |
+| linux-canary-auditd | Linux -- auditd running (canary) | linux | canary cohort | CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0 | 4.1.1.x | M1047 | Y | yes | file, processes | enrolled-verified | The ADR-0009 progressive-rollout worked example: self-scopes on /etc/axiom/canary; promoted fleet-wide only after the telemetry soak gate (promote.ps1) passes. **Full loop proven live on canary-01**: fail -> HOLD -> run-script remediation -> PASS -> PROMOTE PR. Lives in lib/linux/policies/canary-auditd.yml. |
 | macos-filevault-enabled | macOS -- FileVault enabled | darwin | all | CIS Apple macOS 14.0 Sonoma Benchmark v1.0.0 | 2.6.6 | M1041 | Y | N-A-until-enrolled | disk_encryption | authored | platform: darwin keeps this off the Ubuntu hosts. |
 | macos-app-firewall-on | macOS -- Application Firewall on | darwin | all | CIS Apple macOS 14.0 Sonoma Benchmark v1.0.0 | 2.2.1 | M1037 | Y | N-A-until-enrolled | alf | authored | global_state >= 1. |
 | macos-gatekeeper-enabled | macOS -- Gatekeeper enabled | darwin | all | CIS Apple macOS 14.0 Sonoma Benchmark v1.0.0 | 2.6.5 | M1038 | Y | N-A-until-enrolled | gatekeeper | authored | assessments_enabled AND dev_id_enabled. |
@@ -79,4 +85,4 @@ on free tier** (it only gates Premium features).
 | windows-uac-enabled | Windows -- UAC enabled | windows | all | CIS Microsoft Windows 11 Enterprise Benchmark v3.0.0 | 2.3.17.6 | M1052 | Y | N-A-until-enrolled | registry | authored | EnableLUA=1. |
 | windows-min-os-build | Windows -- minimum OS build | windows | all | CIS Microsoft Windows 11 Enterprise Benchmark (patch posture) | - | M1051 | Y | N-A-until-enrolled | os_version | authored | Build >= 22631 (Windows 11 23H2 baseline). |
 
-_Free tier v4.89.1. 22 policies: 10 Linux (3 enclave-scoped), 6 macOS, 6 Windows. All detection-only; enforcement is Premium._
+_Free tier v4.89.1. 23 policies: 11 Linux (3 enclave-scoped, 1 canary-scoped per ADR-0009), 6 macOS, 6 Windows. All detection-only; enforcement is Premium._

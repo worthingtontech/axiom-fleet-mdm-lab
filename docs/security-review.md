@@ -162,12 +162,13 @@ Beyond the clean secret result, the following lower-severity, security-relevant 
 None is a secret disclosure; they are hardening/hygiene items to resolve before or at the public
 flip.
 
-- **F-1 (Low — information disclosure): personal absolute paths leak the OS username.** Six tracked
-  files embed `C:\Users\Sherlock\...` defaults (`provisioning/linux/new-linux-vm.ps1`,
-  `provisioning/windows/new-windows-vm.ps1`, `provisioning/README.md`, `runbooks/ci-cd-setup.md`,
-  `runbooks/enroll-windows.md`, and `FLEETDM_LAB_PROMPT.md`). These reveal the operator's local
-  username and are non-portable. Recommend parameterizing to `$env`/relative paths or clearly
-  labeling them operator-specific defaults.
+- **F-1 (Low — information disclosure): personal absolute paths leaked the OS username —
+  RESOLVED 2026-07-23 (pre-flip pass).** Six tracked files embedded personal
+  `C:\Users\<username>\...` paths. All were remediated: provisioning-script parameter defaults
+  now derive from `$PSScriptRoot` (repo-relative) and `$env:USERPROFILE`, the runbooks use
+  repo-relative / `%USERPROFILE%` paths, and the root origin prompt was relocated to
+  `docs/origin-prompt.md` and scrubbed. An adversarial sweep of **all** tracked files (no output
+  truncation) confirms zero username hits.
 
 - **F-2 (Informational): throwaway plaintext lab passwords are public.** As described in §3, these
   are documented lab-only defaults gating disposable VMs. Acceptable, but flag them explicitly in
@@ -280,7 +281,8 @@ by out-of-band backup.
    guard protects any clone, not just the original operator's muscle memory.
 3. **Neutralize the scheduled self-hosted workflows for the public tab** (F-3): guard `schedule:`
    with `if: github.repository_owner == '…'` or comment them out while keeping `workflow_dispatch`.
-4. **Scrub/parameterize the `C:\Users\Sherlock\...` paths** in the six tracked files (F-1).
+4. ~~Scrub/parameterize the personal absolute paths~~ — **done** (F-1 resolved: provisioning/runbooks
+   were already parameterized; the origin prompt is relocated and scrubbed).
 5. **Add a one-line callout** in README/SECURITY.md that the plaintext lab passwords are throwaway
    lab-only defaults (F-2).
 6. **Keep `FLEET_SERVER_PRIVATE_KEY` backed up out-of-band** together with a note that it pairs with

@@ -44,7 +44,7 @@ The two scripts do exactly the three things the MSI alone does **not** guarantee
   `debian:stable-slim` container (the Windows host has no `mkisofs`).
 - **Fleet stack up** at `https://fleet.axiom.lab` with Windows MDM enabled (ADR-0005).
 - **fleetctl** configured with `--rootca` (already done in Phase 1):
-  `C:\Users\Sherlock\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe`.
+  `%USERPROFILE%\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe`.
 
 ---
 
@@ -94,7 +94,7 @@ From an **elevated** PowerShell (creating the VM + disk is fine unelevated, but
 keep it elevated to match the lab convention):
 
 ```powershell
-cd C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\provisioning\windows
+cd <repo-root>\provisioning\windows
 powershell -ExecutionPolicy Bypass -File .\new-windows-vm.ps1
 # defaults: -Name corp-win-01 -IsoPath C:\vms\win11-eval.iso -MemoryMB 6144 -Cpus 2
 ```
@@ -152,7 +152,7 @@ VRDE port with any RDP client.
 **From the host** (fleetctl already `--rootca`-configured):
 
 ```powershell
-$fleetctl = 'C:\Users\Sherlock\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe'
+$fleetctl = "$env:USERPROFILE\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe"
 & $fleetctl get hosts                     # corp-win-01 appears, platform: windows
 & $fleetctl get hosts --mdm               # lists hosts enrolled in Fleet with MDM on
 & $fleetctl get host corp-win-01          # MDM status should read On

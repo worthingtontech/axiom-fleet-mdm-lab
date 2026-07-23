@@ -87,8 +87,9 @@ param(
     [int]$MemoryMB = 6144,
     [int]$Cpus = 2,
 
-    [string]$MsiPath = 'C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\provisioning\build\build\fleet-osquery.msi',
-    [string]$RootCaPath = 'C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\infra\tls\rootCA.pem',
+    # Repo-relative defaults (this script lives in provisioning\windows\) -- override as needed.
+    [string]$MsiPath = (Join-Path $PSScriptRoot '..\build\build\fleet-osquery.msi'),
+    [string]$RootCaPath = (Join-Path $PSScriptRoot '..\..\infra\tls\rootCA.pem'),
     [string]$FirstLogonScript = '',
 
     [string]$User = 'axiom',
@@ -381,7 +382,7 @@ Invoke-VBox -VBoxArgs @('startvm', $Name, '--type', 'headless') | Out-Null
 # ----------------------------------------------------------------------------
 # Guidance
 # ----------------------------------------------------------------------------
-$fleetctl = 'C:\Users\Sherlock\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe'
+$fleetctl = Join-Path $env:USERPROFILE '.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe'
 Write-Host ""
 Write-Host "VM '$Name' booting headless." -ForegroundColor Green
 Write-Host ""

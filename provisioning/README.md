@@ -83,7 +83,7 @@ headless. **Idempotent** — re-running a Name tears down the old VM + disk firs
 Get-Content -Wait C:\vms\gpu-node-2-serial.log
 
 # Poll Fleet (first boot is slow — see below; poll up to ~600s):
-$fleetctl = 'C:\Users\Sherlock\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe'
+$fleetctl = "$env:USERPROFILE\.axiom-tools\fleetctl_v4.89.1_windows_amd64\fleetctl.exe"
 & $fleetctl get hosts | Select-String gpu-node-2
 ```
 

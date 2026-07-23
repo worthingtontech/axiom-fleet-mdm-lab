@@ -59,7 +59,8 @@ Git Bash `curl` and `npm` use their own CA bundles, so point them at the mkcert
 root as **machine** environment variables:
 
 ```powershell
-$rootCA = "C:\Users\Sherlock\Documents\Code\fleetDM_fullLab\infra\tls\rootCA.pem"
+# From the repo root:
+$rootCA = (Resolve-Path .\infra\tls\rootCA.pem).Path
 [Environment]::SetEnvironmentVariable("CURL_CA_BUNDLE",     $rootCA, "Machine")
 [Environment]::SetEnvironmentVariable("NODE_EXTRA_CA_CERTS", $rootCA, "Machine")
 ```

@@ -1,8 +1,16 @@
-# MASTER PROMPT — FleetDM DevSecOps Lab ("Project AXIOM")
+# Appendix — the origin prompt (how this lab was driven)
 
-Copy everything below the line into a fresh Claude Code session started in an empty
-directory (e.g. `C:\Users\Sherlock\Documents\Code\axiom-fleet-lab`). Recommended:
-start in Plan Mode so it proposes Phase 0–1 before touching your machine.
+> **What this is.** Project AXIOM was built AI-natively: the operator ran
+> [Claude Code](https://claude.com/claude-code) as the build engineer and steered it with the
+> master prompt below, approving every machine-touching step at explicit gates. The prompt is
+> preserved verbatim as an appendix because *prompt-as-spec* is part of the engineering story —
+> the constraints it encodes ($0, secrets-never-in-Git, Premium-honesty, rebuild-from-Git) are
+> the same ones the finished repo enforces in CI. The judgement calls, reviews, and merges were
+> — and remain — human. Start at the [README](../README.md) for the finished artifact.
+>
+> To reproduce the experiment: copy everything below the line into a fresh Claude Code session
+> started in an empty directory. Recommended: start in Plan Mode so it proposes Phase 0–1
+> before touching your machine.
 
 ---
 
