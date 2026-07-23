@@ -122,13 +122,21 @@ jobs:
             https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Compile-check osquery SQL
+      - name: Compile-check osquery SQL (Linux-runnable queries)
         run: |
-          # Pull every query string out of default.yml (policies / reports /
-          # queries / labels). `?` + select() stay safe when a section is null.
+          # osqueryi here is LINUX, so only compile-check queries that run on Linux:
+          # the `platform: linux` policies + all reports/labels (which use cross-platform
+          # tables like system_info/file/hash). macOS/Windows policy queries reference
+          # tables that DON'T EXIST on a Linux osquery (alf, gatekeeper, sip_config,
+          # managed_policies, bitlocker_info, registry, ...) -- they are schema-validated
+          # by the ephemeral-Fleet dry-run job below. Full per-OS compile checking would
+          # add macos-latest / windows-latest runners (future enhancement).
+          # `// "linux"` treats a query with no platform as Linux; the `- path:` library
+          # policy has no inline .query so it drops out naturally.
           mapfile -t QUERIES < <(
             yq -o=json '.' gitops/default.yml \
-              | jq -r '[.policies[]?.query, .reports[]?.query, .queries[]?.query, .labels[]?.query]
+              | jq -r '[ (.policies[]? | select((.platform // "linux") | test("linux")) | .query),
+                         .reports[]?.query, .queries[]?.query, .labels[]?.query ]
                        | .[]? | select(. != null and . != "")'
           )
           echo "Found ${#QUERIES[@]} query/queries to check."
