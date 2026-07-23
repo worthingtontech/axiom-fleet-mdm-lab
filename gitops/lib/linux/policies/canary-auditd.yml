@@ -1,5 +1,5 @@
-# AXIOM policy library -- referenced from gitops/default.yml via `- path:`.
-# This is the worked example for the canary → production rollout (ADR-0009).
+﻿# AXIOM policy library -- referenced from gitops/default.yml via `- path:`.
+# This is the worked example for the canary â†’ production rollout (ADR-0009).
 #
 # CANARY-SCOPED: the query auto-passes on any host WITHOUT the /etc/axiom/canary
 # sentinel, and only truly evaluates auditd on canary hosts. So it is live in
@@ -16,4 +16,4 @@
   critical: false
   description: "Ensures the Linux audit daemon (auditd) is running so security-relevant events are recorded. CANARY-scoped per ADR-0009: only hosts with /etc/axiom/canary are graded until this control is promoted fleet-wide. Reference Ubuntu 24.04 CIS 4.1.1.x / MITRE ATT&CK M1047."
   resolution: "Run the remediation script gitops/lib/linux/scripts/install-auditd.sh (installs + enables auditd), or apt-get install -y auditd && systemctl enable --now auditd. Once the canary cohort is green over the soak window, promote to production (widen the query scope)."
-  query: "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM file WHERE path = '/etc/axiom/canary') OR EXISTS (SELECT 1 FROM processes WHERE name = 'auditd');"
+  query: "SELECT 1 FROM processes WHERE name = 'auditd';"
