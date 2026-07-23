@@ -106,7 +106,14 @@ def poll_once():
     for p in policies:
         name = _esc(p.get("name", "unknown"))
         crit = "true" if p.get("critical") else "false"
-        failing = int(p.get("failing_host_count", 0) or 0)
+        # Real-time failing count from policy_membership. The /policies aggregate
+        # failing_host_count lags on a slow recalc cron -- after a host is remediated
+        # it can still show a stale failure for minutes, which would wrongly HOLD the
+        # canary gate. /hosts/count?policy_response=failing reflects the live state.
+        try:
+            failing = int(get(f"/api/latest/fleet/hosts/count?policy_id={p.get('id')}&policy_response=failing").get("count", 0))
+        except Exception:  # noqa: BLE001 -- fall back to the (possibly stale) aggregate
+            failing = int(p.get("failing_host_count", 0) or 0)
         lines.append(
             f'axiom_policy_failing_hosts{{policy="{name}",critical="{crit}"}} {failing}')
         if p.get("critical"):

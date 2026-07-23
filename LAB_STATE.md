@@ -357,18 +357,27 @@ promote fleet-wide **only if the telemetry stays green** over a soak. Design + F
   the soak. [`.github/workflows/promote.yml`](.github/workflows/promote.yml) runs it on the
   self-hosted runner and, on PASS, opens a **PR** (human-reviewed; merge → `apply.yml` → fleet-wide).
 
-**Verified live** — the gate runs end-to-end against Prometheus and **correctly HOLDS**, with the
-telemetry-alive (`=1`) and zero-failure (`=0`) checks green and the *only* block being the honest
-empty-cohort guard:
+**PROVEN END-TO-END LIVE** on `canary-01` (host id=5) — the complete progressive-rollout loop:
 ```
-[1] telemetry alive           axiom_exporter_up = 1
-[2] canary cohort populated   axiom_label_hosts{label=canary} = 0  (need >= 1)
-[3] no canary failures (soak)  max_over_time(failing[2h]) = 0
-RESULT: HOLD -- canary cohort has < 1 host (nothing to gate on)   [exit 1]
+1. new-linux-vm.ps1 -Canary          -> canary-01 joins the canary cohort (no auditd)
+2. policy "auditd running (canary)"  -> FAIL;  gate HOLD: "1 canary host FAILING over the soak"
+3. fleetctl run-script install-auditd.sh  -> auditd installed + running
+4. policy -> PASS;  after the soak clears the gate flips:
+     [1] telemetry alive           axiom_exporter_up = 1
+     [2] canary cohort populated   axiom_label_hosts{label=canary} = 1
+     [3] no canary failures (soak) max_over_time(failing[72s]) = 0
+     RESULT: PROMOTE  -> rewrites the control's query canary-scoped -> fleet-wide:
+       - SELECT 1 WHERE NOT EXISTS(/etc/axiom/canary) OR EXISTS(auditd running)
+       + SELECT 1 FROM processes WHERE name = 'auditd';
 ```
-Proves the load-bearing property: **it will not promote on a green-but-empty cohort.** The full live
-loop (`-Canary` host → auditd fails → run-script remediation → passes → PROMOTE → PR) awaits a canary
-VM (single-VM NEM ceiling).
+Also proves the load-bearing guard (before a canary host exists it HOLDs on the empty cohort — it will
+not promote on a green-but-empty cohort). **Two real bugs surfaced + fixed by this live run:**
+(a) `promote.ps1` emitted a fractional-hour Prometheus range (`0.05h` -> HTTP 400); now integer
+seconds. (b) the exporter read Fleet's `/policies` **aggregate** failing count, which lags a slow
+recalc cron — it stayed stale-high for many minutes after remediation and would have wrongly HELD;
+now it reads the real-time `/hosts/count?policy_response=failing` (policy_membership), which reflected
+the pass immediately. Enrollment first stalled on a NEM soft-lockup (not NAT — see ADR-0002's
+operational finding); a hard reset cleared it.
 
 ### Patch enforcement + Claude-in-the-loop (2026-07-22)
 

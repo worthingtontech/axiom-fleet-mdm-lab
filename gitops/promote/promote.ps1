@@ -78,7 +78,8 @@ Write-Host ("  [2] canary cohort populated   axiom_label_hosts{{label=canary}} =
 if (($null -eq $canary) -or ($canary -lt $MinCanaryHosts)) { $reasons.Add("canary cohort has < $MinCanaryHosts host(s) -- nothing to gate on") }
 
 # 3. zero canary failures, sustained over the soak window
-$soak = ('{0}h' -f $SoakHours)
+# Prometheus range durations must be INTEGER units -- '0.05h' is a 400. Emit seconds.
+$soak = ('{0}s' -f [int]($SoakHours * 3600))
 $failQ = 'max_over_time(axiom_policy_failing_hosts{policy="' + $Policy + '"}[' + $soak + '])'
 $fail = Scalar (Invoke-Prom $failQ)
 Write-Host ("  [3] no canary failures (soak)  max_over_time(failing[{0}]) = {1}" -f $soak, $(if ($null -eq $fail) {'<no data>'} else {$fail}))

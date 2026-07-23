@@ -69,3 +69,36 @@ the official **Ubuntu 24.04 cloud image**.
   without it.
 - **WSL2 / containers as "Linux hosts."** Rejected in ADR-0001 (no real block
   devices → meaningless FDE/FIM policies).
+
+## Operational finding (2026-07-22): NEM soft-lockups wedge the agent, not the network
+
+The Hyper-V-coexistence penalty noted above has a sharp failure mode worth recording, because chasing
+it the wrong way costs hours.
+
+**Symptom.** Recently-provisioned VMs (`corp-win-01`, `canary-01`) finished cloud-init but never
+appeared in Fleet — while *earlier* VMs (`gpu-node-1`, `enclave-01`) had enrolled fine on the same
+setup. It looked like a networking regression.
+
+**Red herring — it was NOT NAT/TLS.** The tempting hypothesis (VBox NAT `10.0.2.2` can't reach the
+host's Docker-published Caddy `:443`, which showed IPv6-only in `Get-NetTCPConnection`) was
+**disproven**: baking the `axiom-lab` SSH key into cloud-init + a temporary
+`VBoxManage controlvm <vm> natpf1 "ssh,tcp,127.0.0.1,2222,,22"` gives a guest shell despite NAT, and
+from inside the guest `curl --cacert /opt/orbit/fleet.pem https://fleet.axiom.lab/healthz` returned
+**HTTP 200 in ~15 ms**. NAT + TLS + Caddy + Fleet all work; `/etc/hosts` + DNS resolve correctly.
+
+**Actual root cause.** `orbit` was `active` but `osqueryd` was `inactive`, and the orbit process was
+**wedged and unkillable** — it had consumed **1h11m of CPU** and survived `SIGKILL`
+("Processes still around after SIGKILL", "Failed to kill control group: Invalid argument"). That is a
+**NEM CPU soft-lockup** leaving the agent stuck in uninterruptible (D) state, so it never launches
+osqueryd or enrolls. The guest clock was correct (ruling out TLS-validity skew).
+
+**Mitigation (proven).** A hard `VBoxManage controlvm <vm> reset` clears the wedge; a fresh `orbit`
+enrolls within a minute (`canary-01` came up `online` immediately after the reset). Rules of thumb:
+provision/boot **one VM at a time**, avoid heavy concurrent Docker/Hyper-V load during first boot,
+and if a VM enrolls-then-stalls, **reset it** rather than debugging the network. Keep the SSH key +
+the `natpf1` shell trick handy — it is the only way into a headless, Guest-Additions-less VM under NAT.
+
+**Durable fix.** The soft-lockup is intrinsic to VBox-under-NEM (Docker Desktop keeps the Windows
+hypervisor on). The real escape is a **native hypervisor for the client VMs** — the deferred Mac
+Studio (macOS/iOS) and/or bare-metal Hyper-V/KVM, which ADR-0001 already routes those platforms
+toward. For the Linux lab, reset-on-wedge is an acceptable $0 mitigation.
