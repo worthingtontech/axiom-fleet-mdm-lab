@@ -26,7 +26,23 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}    # consumed by `gh` (label + issue create)
     steps:
-      - uses: actions/checkout@v4
+      # Plain-git sync instead of actions/checkout: on this Windows self-hosted
+      # runner, checkout@v4's temp-dir cleanup intermittently hits
+      # "EBUSY: resource busy or locked" (Windows file-lock race on _work\_temp;
+      # AV/indexer handles). The action's convenience features (auth token
+      # injection, temp staging) aren't needed here -- the repo is public and
+      # the job only reads it -- so a bare fetch/reset is both sufficient and
+      # immune to the race.
+      - name: Sync repo (plain git)
+        run: |
+          if [ -d .git ]; then
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fdx -e .drift
+          else
+            git clone "https://github.com/${GITHUB_REPOSITORY}.git" .
+          fi
+          git log -1 --oneline
 
       - name: Install fleetctl
         run: |
