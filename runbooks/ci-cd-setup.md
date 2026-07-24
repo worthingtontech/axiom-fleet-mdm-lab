@@ -68,6 +68,27 @@ $rootCA = (Resolve-Path .\infra\tls\rootCA.pem).Path
 > These persist for the runner **service** (which starts under a machine context).
 > Set them **before** `svc.cmd install` so the service inherits them.
 
+### `shell: bash` on a self-hosted Windows runner is NOT Git Bash by default
+
+GitHub-hosted Windows runners map `shell: bash` to Git Bash. A **self-hosted** runner
+just resolves `bash` from PATH — and on a stock Windows 11 box that finds the **WSL
+shim** `C:\WINDOWS\system32\bash.EXE` first, which fails with
+`WSL ERROR: execvpe(/bin/bash) failed` if the default distro has no `/bin/bash`
+(e.g. `docker-desktop`). Every `shell: bash` step then dies before running a line.
+
+Fix: the runner honors a **`.path` file in its root directory** — the PATH its jobs
+see. Put Git's `bin` first (from the runner's account, PowerShell):
+
+```powershell
+Set-Content C:\actions-runner\.path -Value "C:\Program Files\Git\bin;$env:PATH" -Encoding ascii -NoNewline
+```
+
+Restart the runner afterward (`.path`, like `.env`, is read at startup). Related:
+`actions/checkout@v4`'s temp-dir cleanup also intermittently hits
+`EBUSY: resource busy or locked` on Windows self-hosted runners (file-lock races) —
+the LAN workflows sync with **plain `git fetch`/`reset`** instead, which needs no
+temp staging and no auth on a public repo.
+
 ---
 
 ## Step 2 — Register the self-hosted runner
