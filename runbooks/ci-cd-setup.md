@@ -76,14 +76,19 @@ shim** `C:\WINDOWS\system32\bash.EXE` first, which fails with
 `WSL ERROR: execvpe(/bin/bash) failed` if the default distro has no `/bin/bash`
 (e.g. `docker-desktop`). Every `shell: bash` step then dies before running a line.
 
-Fix: the runner honors a **`.path` file in its root directory** — the PATH its jobs
-see. Put Git's `bin` first (from the runner's account, PowerShell):
+Fix (proven live): the worker resolves `shell: bash` from **its own process PATH**, so
+start the runner with Git's `bin` in front (a `.path` file affects job-step PATH, but
+NOT this shell resolution — tested; it did not clear the error):
 
 ```powershell
-Set-Content C:\actions-runner\.path -Value "C:\Program Files\Git\bin;$env:PATH" -Encoding ascii -NoNewline
+cd C:\actions-runner
+$env:PATH = "C:\Program Files\Git\bin;$env:PATH"
+./run.cmd
 ```
 
-Restart the runner afterward (`.path`, like `.env`, is read at startup). Related:
+When later installing as a **service**, the equivalent is prepending
+`C:\Program Files\Git\bin` to the **Machine** PATH (the service does not inherit a
+user session), then reinstalling the service. Related:
 `actions/checkout@v4`'s temp-dir cleanup also intermittently hits
 `EBUSY: resource busy or locked` on Windows self-hosted runners (file-lock races) —
 the LAN workflows sync with **plain `git fetch`/`reset`** instead, which needs no
